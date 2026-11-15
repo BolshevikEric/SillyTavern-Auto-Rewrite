@@ -13,7 +13,9 @@ import { REVISION, TEMP, remember, collapse, restore, recover, markStaging, live
 
 const KEY = 'rewrite_writer';
 const RUNTIME = Symbol.for('st.auto-rewrite.standalone');
-const DEFAULT_FEEDBACK = `上一轮正文剧情写的太烂了，角色们（不局限于{{user}}）的言行举止刻画的很烂，角色们的心理刻画很烂毫无深度可言，又肤浅又烂，台词很烂。那些优秀的网文角色塑造，哪个不是吊打你这破内容。剧情很烂。文风很烂。烂完了!  重写！
+const DEFAULT_FEEDBACK = `上一轮正文需要重写
+在<content>之前先进行2000字左右的分析，问自己几个问题，在场角色的所作所为和心理合理吗？台词看起来够自然吗，有没有很尬很怪的台词？角色塑造够优秀吗？剧情够精彩吗？文风够让读者满意吗？`;
+const PREVIOUS_DEFAULT_FEEDBACK = `上一轮正文剧情写的太烂了，角色们（不局限于{{user}}）的言行举止刻画的很烂，角色们的心理刻画很烂毫无深度可言，又肤浅又烂，台词很烂。那些优秀的网文角色塑造，哪个不是吊打你这破内容。剧情很烂。文风很烂。烂完了!  重写！
 
 写本轮正文前，先用<prex>...</prex>做一次预分析，挑出上一轮的问题。</prex>后空一行，再写<content>。
 
@@ -36,7 +38,7 @@ function settings() {
     const all = getContext().extensionSettings;
     if (!all[KEY] || typeof all[KEY] !== 'object') all[KEY] = {};
     if (typeof all[KEY].auto !== 'boolean') all[KEY].auto = false;
-    if (typeof all[KEY].feedback !== 'string') all[KEY].feedback = DEFAULT_FEEDBACK;
+    if (typeof all[KEY].feedback !== 'string' || all[KEY].feedback === PREVIOUS_DEFAULT_FEEDBACK) all[KEY].feedback = DEFAULT_FEEDBACK;
     if (typeof all[KEY].profileId !== 'string') all[KEY].profileId = '';
     if (typeof all[KEY].model !== 'string') all[KEY].model = '';
     return all[KEY];

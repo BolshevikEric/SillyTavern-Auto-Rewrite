@@ -221,7 +221,7 @@ function setDropdownButton(btn, items, value) {
 }
 
 export function createRewriteUI({ getSettings, getView, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onFeedback, onRewrite, onJump, onMutation }) {
-    let panel, bar, footer, nativePager, pagerSlot, dialog, observer, frame, poll, clock, shown;
+    let settingsLauncher, settingsEntry, bar, footer, nativePager, pagerSlot, dialog, observer, frame, poll, clock, shown;
     let dock, dockViewport, dockObserver, dockPadding;
     let disposed = false;
     const forms = new Set();
@@ -451,24 +451,53 @@ export function createRewriteUI({ getSettings, getView, getRouting, onRoute, onR
             root.querySelector('[data-route-summary]').textContent = `主 API：${mainText}  →  重写：${rewriteText}`;
         }
         if (bar) bar.querySelector('[data-auto]').checked = settings.auto;
+        if (settingsLauncher) {
+            settingsLauncher.dataset.auto = String(settings.auto);
+            settingsLauncher.title = `正文重写设置 · 自动重写${settings.auto ? '已开启' : '已关闭'}`;
+        }
     };
     const openSettings = () => {
         if (dialog) { dialog.focus(); return; }
         dialog = document.createElement('dialog');
         dialog.className = 'auto-rewrite-dialog';
+        dialog.id = 'auto-rewrite-settings-dialog';
+        dialog.setAttribute('aria-label', '正文重写设置');
         const heading = document.createElement('div');
         heading.className = 'auto-rewrite-dialog-heading';
         heading.innerHTML = '<div><small>REWRITE</small><h3>正文重写</h3></div><button type="button" class="auto-rewrite-icon-button" aria-label="关闭设置"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>';
         const form = controls();
         const activeDialog = dialog;
+        let backdropPressed = false;
+        const isBackdrop = event => {
+            if (event.target !== activeDialog) return false;
+            const bounds = activeDialog.getBoundingClientRect();
+            return event.clientX < bounds.left || event.clientX > bounds.right
+                || event.clientY < bounds.top || event.clientY > bounds.bottom;
+        };
+        activeDialog.addEventListener('pointerdown', event => { backdropPressed = event.button === 0 && isBackdrop(event); });
+        activeDialog.addEventListener('pointercancel', () => { backdropPressed = false; });
+        activeDialog.addEventListener('click', event => {
+            const dismiss = backdropPressed && isBackdrop(event);
+            backdropPressed = false;
+            if (dismiss) activeDialog.close();
+        });
         heading.querySelector('button').addEventListener('click', () => dialog?.close());
         dialog.append(heading, form);
         dialog.addEventListener('cancel', event => { if (menu.isOpen()) { event.preventDefault(); menu.close(); } });
-        dialog.addEventListener('close', () => { menu.close(); abortForm(form); forms.delete(form); activeDialog.remove(); if (dialog === activeDialog) dialog = null; });
+        dialog.addEventListener('close', () => {
+            menu.close(); abortForm(form); forms.delete(form); activeDialog.remove();
+            if (dialog === activeDialog) {
+                dialog = null;
+                settingsLauncher?.setAttribute('aria-expanded', 'false');
+                settingsEntry?.querySelector('button').setAttribute('aria-expanded', 'false');
+            }
+        });
         document.body.append(dialog);
         sync();
         refresh();
         dialog.showModal();
+        settingsLauncher?.setAttribute('aria-expanded', 'true');
+        settingsEntry?.querySelector('button').setAttribute('aria-expanded', 'true');
     };
     const makeBar = () => {
         const root = document.createElement('div');
@@ -615,13 +644,28 @@ export function createRewriteUI({ getSettings, getView, getRouting, onRoute, onR
         if (!view.idle && !view.busy && !poll) poll = setTimeout(() => { poll = null; refresh(); }, 200);
     }
     function install() {
-        const target = document.querySelector('#extensions_settings2') ?? document.querySelector('#extensions_settings');
-        if (!panel && target) {
-            panel = document.createElement('div');
-            panel.className = 'extension_container auto-rewrite-settings';
-            panel.innerHTML = '<div class="inline-drawer"><div class="inline-drawer-toggle inline-drawer-header"><b>正文重写 · 独立版</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div><div class="inline-drawer-content"></div></div>';
-            panel.querySelector('.inline-drawer-content').append(controls());
-            target.append(panel);
+        const settingsTarget = document.querySelector('#extensions_settings2') ?? document.querySelector('#extensions_settings');
+        if (!settingsEntry && settingsTarget) {
+            settingsEntry = document.createElement('div');
+            settingsEntry.id = 'auto-rewrite-settings-entry';
+            settingsEntry.className = 'extension_container auto-rewrite-entry';
+            settingsEntry.innerHTML = '<span class="auto-rewrite-entry-icon"><i class="fa-solid fa-pen-nib" aria-hidden="true"></i></span><span class="auto-rewrite-entry-title">正文重写</span><button type="button" class="menu_button auto-rewrite-entry-button" aria-label="打开正文重写设置" aria-haspopup="dialog" aria-expanded="false" aria-controls="auto-rewrite-settings-dialog"><i class="fa-solid fa-sliders" aria-hidden="true"></i><span>设置</span></button>';
+            settingsEntry.querySelector('button').addEventListener('click', openSettings);
+            settingsTarget.append(settingsEntry);
+        }
+        const toolsMenu = document.getElementById('extensionsMenu');
+        if (!settingsLauncher && toolsMenu) {
+            settingsLauncher = document.createElement('button');
+            settingsLauncher.type = 'button';
+            settingsLauncher.id = 'auto-rewrite-settings-menu';
+            settingsLauncher.className = 'list-group-item flex-container flexGap5';
+            settingsLauncher.setAttribute('aria-label', '打开正文重写设置');
+            settingsLauncher.setAttribute('aria-haspopup', 'dialog');
+            settingsLauncher.setAttribute('aria-expanded', 'false');
+            settingsLauncher.setAttribute('aria-controls', 'auto-rewrite-settings-dialog');
+            settingsLauncher.innerHTML = '<i class="fa-solid fa-sliders extensionsMenuExtensionButton" aria-hidden="true"></i><span>重写设置</span>';
+            settingsLauncher.addEventListener('click', openSettings);
+            toolsMenu.append(settingsLauncher);
         }
         const chat = document.getElementById('chat');
         if (!observer && chat) {
@@ -639,6 +683,6 @@ export function createRewriteUI({ getSettings, getView, getRouting, onRoute, onR
         menu.destroy();
         for (const request of requests.values()) request.abort();
         requests.clear();
-        dialog?.close(); panel?.remove(); removeBar(); forms.clear();
+        dialog?.close(); settingsLauncher?.remove(); settingsEntry?.remove(); removeBar(); forms.clear();
     } };
 }

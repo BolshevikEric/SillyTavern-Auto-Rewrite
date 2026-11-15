@@ -12,6 +12,7 @@ const info = message => ({ send_date: message.send_date, gen_started: message.ge
 const usable = message => message && !message.is_user && !message.is_system
     && Boolean(message.mes?.trim()) && message.mes.trim() !== '...';
 const fingerprint = text => {
+    if (typeof text !== 'string') return null;
     let value = 2166136261;
     for (let i = 0; i < text.length; i++) value = Math.imul(value ^ text.charCodeAt(i), 16777619);
     return `${text.length}:${value >>> 0}`;

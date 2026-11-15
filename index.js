@@ -95,7 +95,9 @@ function view() {
     const reply = running && chatKey(ctx) === running.key && ctx.chat[running.index] === running.source
         ? liveReply(running) ?? { ...running.attempt, message: running.source, preview: !running.cancelled } : latestReply(ctx);
     const saved = reply?.message.extra?.[REVISION];
-    return { reply, link: versionLink(reply), status, busy: Boolean(running), cancelled: Boolean(running?.cancelled),
+    // The native target swipe may be one past the array end until the first
+    // response. Version navigation is disabled for the entire transaction.
+    return { reply, link: running ? null : versionLink(reply), status, busy: Boolean(running), cancelled: Boolean(running?.cancelled),
         idle: isIdle(ctx), composerBusy: composerBusy(), timing: running?.timing ?? saved?.timing,
         automatic: running ? running.automatic : saved?.automatic };
 }

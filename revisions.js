@@ -9,6 +9,8 @@ const RECEIPT = 'st.auto-rewrite.pending:';
 export const keyOf = ctx => `${ctx.groupId ?? ''}|${ctx.characterId ?? ''}|${ctx.getCurrentChatId() ?? ''}`;
 
 function fingerprint(text) {
+    // Native swipe generation can temporarily expose an unfilled array slot.
+    if (typeof text !== 'string') return null;
     let value = 2166136261;
     for (let i = 0; i < text.length; i++) value = Math.imul(value ^ text.charCodeAt(i), 16777619);
     return `${text.length}:${value >>> 0}`;
@@ -232,6 +234,8 @@ export function versionLink(reply) {
     const message = reply?.message;
     if (!message || !Array.isArray(message.swipes)) return null;
     const current = message.swipe_id ?? 0;
+    if (!Number.isInteger(current) || current < 0 || current >= message.swipes.length
+        || typeof message.swipes[current] !== 'string') return null;
     const record = message.extra?.[REVISION];
     const originalSwipe = record?.originalHash ? message.swipes.findIndex(text => fingerprint(text) === record.originalHash) : record?.originalSwipe;
     if (Number.isInteger(originalSwipe) && originalSwipe >= 0

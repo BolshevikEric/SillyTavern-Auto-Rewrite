@@ -34,7 +34,7 @@
 https://github.com/wujimol/SillyTavern-Auto-Rewrite
 ```
 
-或者手动下载源码，将 `index.js`、`revisions.js`、`inplace-rewrite.js`、`mvu-compat.js`、`ui.js`、`model-routing.js`、`manifest.json`、`style.css` 放到酒馆的第三方扩展目录下，刷新页面即可。
+或者手动下载源码，将 `index.js`、`revisions.js`、`inplace-rewrite.js`、`background-scheduler.js`、`mvu-compat.js`、`ui.js`、`model-routing.js`、`manifest.json`、`style.css` 放到酒馆的第三方扩展目录下，刷新页面即可。
 
 > 如果之前装过旧的定制版，建议先禁用或替换掉旧版，避免两个扩展同时触发。
 
@@ -51,6 +51,9 @@ https://github.com/wujimol/SillyTavern-Auto-Rewrite
 本次模型选择功能未运行测试、构建、浏览器回归或真实接口验证。
 
 ## 使用注意与兼容说明
+
+- **后台标签页**：重写队列使用消息任务调度，后台重试可借助 Worker；不可用时退回普通计时器。切换可见性或恢复页面会重新检查队列并刷新界面。浏览器彻底冻结、丢弃页面或关闭标签时，前端插件仍无法保证继续运行。
+- **完成提示**：支持可选的 `st.generation-notifications.sequence.v1` 通知桥接；安装该桥接的酒馆会把首轮与自动重写作为同一轮计时状态，只在最终稿收尾成功后显示完成提示。普通酒馆不需要该桥接即可使用重写。若酒馆本体在后台等待动画帧而未释放生成状态，仍需要修复本体的等待逻辑。
 
 - **插件更新事件**：同楼重写保留原生接收／工具事件，并在最终稿落定后发出原楼的 `MESSAGE_UPDATED` 与 `MESSAGE_SWIPED`，不伪造第二条普通回复。它不会屏蔽首轮完成事件、撤销任意插件已写入的数据，或保证只记录首次正文的插件自动更新；这些插件仍需针对更新／翻页事件适配。
 - **请求结构**：使用酒馆已有聊天内注入机制，不直接重排最终 API 数组，不切换写作预设，不屏蔽工具流程。该机制可能与预设已有的同角色、同深度注入合并，或受自定义上下文重组脚本影响，不能保证所有预设行为完全一致。

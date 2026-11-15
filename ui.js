@@ -229,9 +229,14 @@ export function createRewriteUI({ getSettings, getView, getRouting, onRoute, onR
     let formSequence = 0;
     const menu = createFloatingMenu();
     const refresh = () => {
-        if (disposed || frame) return;
+        if (disposed || frame || document.hidden) return;
         frame = requestAnimationFrame(() => { frame = null; render(); });
     };
+    const onVisibility = () => {
+        if (frame) { cancelAnimationFrame(frame); frame = null; }
+        if (!document.hidden) refresh();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
     const abortForm = (root, role) => {
         const prefix = `${root.dataset.formId}:${role ? `${role}` : ''}`;
         for (const [key, req] of requests) {
@@ -627,6 +632,7 @@ export function createRewriteUI({ getSettings, getView, getRouting, onRoute, onR
     }
     return { install, refresh, sync, openSettings, dispose() {
         disposed = true;
+        document.removeEventListener('visibilitychange', onVisibility);
         observer?.disconnect();
         if (frame) cancelAnimationFrame(frame);
         clearTimeout(poll); clearInterval(clock);

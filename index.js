@@ -5,6 +5,7 @@ import { hasPendingFileAttachment } from '../../../chats.js';
 import { getRegexedString, regex_placement } from '../../regex/engine.js';
 import { createRewriteUI } from './ui.js';
 import { createModelRouting } from './model-routing.js';
+import { createBackgroundScheduler, disposeBackgroundDelays } from './background-scheduler.js';
 import { mvuBusy, mvuFeedback, prepareMvu, resetMvuFeedback, finishMvu, syncMvuChat, waitMvuWindow } from './mvu-compat.js';
 import { canRewriteInplace, prepareInplace, generateInplace, commitInplace, restoreInplace,
     recoverInplace, ownsInplace, updateInplacePrompts, clearInplacePrompts } from './inplace-rewrite.js';
@@ -24,7 +25,7 @@ let ui;
 let cycle;
 let pending;
 let running;
-let timer;
+let scheduler;
 let sequence = 0;
 let mvuReadyAt = 0;
 let status = '等待下一次生成';
@@ -67,10 +68,13 @@ function setStatus(text) {
 }
 
 function clearPending() {
-    clearTimeout(timer);
-    timer = undefined;
+    scheduler?.cancel();
+    cycle?.notice?.finish(false);
+    if (cycle) cycle.notice = null;
     pending = null;
 }
+
+const beginNotice = () => globalThis[Symbol.for('st.generation-notifications.sequence.v1')]?.begin?.() ?? null;
 
 function matches(attempt, ctx = getContext(), checkText = true) {
     const last = ctx.chat.at(-1);
@@ -124,28 +128,30 @@ function subscribe(type, handler) {
 }
 
 function queue() {
-    clearTimeout(timer);
     if (!installed || !settings().auto || !pending || running) return;
-    timer = setTimeout(() => {
-        timer = undefined;
-        if (!installed || !settings().auto || !pending || running) return;
-        const attempt = pending;
-        const ctx = getContext();
-        if (!cycle || cycle.id !== attempt.cycleId || cycle.attempted || !matches(attempt, ctx, false)) {
-            clearPending();
-            setStatus('聊天或回复已变化，已取消本次自动重写');
-            return;
-        }
-        if (!isIdle(ctx)) { setStatus('等待首轮生成和保存完成'); queue(); return; }
-        if (composerBusy()) { setStatus('输入框有草稿或附件，暂缓自动重写'); queue(); return; }
-        // Capture the finalized text after receive/render handlers and MVU's
-        // extra-model parsing, rather than before their status/variable additions.
-        attempt.text = attempt.message.mes;
-        if (!attempt.text?.trim() || attempt.text.trim() === '...') { clearPending(); return; }
-        cycle.attempted = true;
+    scheduler?.request();
+}
+
+function drainQueue() {
+    if (!installed || !settings().auto || !pending || running) return;
+    const attempt = pending;
+    const ctx = getContext();
+    if (!cycle || cycle.id !== attempt.cycleId || cycle.attempted || !matches(attempt, ctx, false)) {
         clearPending();
-        void rewrite(attempt);
-    }, 150);
+        setStatus('聊天或回复已变化，已取消本次自动重写');
+        return;
+    }
+    if (!isIdle(ctx)) { setStatus('等待首轮生成和保存完成'); scheduler?.retry(); return; }
+    if (composerBusy()) { setStatus('输入框有草稿或附件，暂缓自动重写'); scheduler?.retry(); return; }
+    // Capture the finalized text after receive/render handlers and MVU's
+    // extra-model parsing, rather than before their status/variable additions.
+    attempt.text = attempt.message.mes;
+    if (!attempt.text?.trim() || attempt.text.trim() === '...') { clearPending(); return; }
+    cycle.attempted = true;
+    const notice = cycle.notice;
+    cycle.notice = null;
+    clearPending();
+    void rewrite(attempt, true, notice);
 }
 
 function sameJob(job) {
@@ -176,18 +182,18 @@ function appendFeedback(ctx, text, job) {
     return { message, index };
 }
 
-async function rewrite(attempt, automatic = true) {
-    if (running) return;
+async function rewrite(attempt, automatic = true, notice = null) {
+    if (running) { notice?.finish(false); return; }
     const ctx = getContext();
     const feedback = settings().feedback.trim();
-    if (!feedback) { setStatus('请先填写修改意见'); ui?.openSettings(); return; }
-    if (!matches(attempt, ctx) || !isIdle(ctx) || composerBusy()) return;
+    if (!feedback) { notice?.finish(false); setStatus('请先填写修改意见'); ui?.openSettings(); return; }
+    if (!matches(attempt, ctx) || !isIdle(ctx) || composerBusy()) { notice?.finish(false); return; }
     const now = Date.now();
     const firstStarted = Date.parse(attempt.message.gen_started);
     const job = { id: `rewrite-${now.toString(36)}-${Math.random().toString(36).slice(2)}`,
         key: attempt.key, index: attempt.index, attempt, source: attempt.message,
         original: structuredClone(attempt.message), prefix: ctx.chat.slice(0, attempt.index),
-        cancelled: false, generating: false, automatic,
+        cancelled: false, generating: false, automatic, notice: notice ?? beginNotice(),
         timing: { startedAt: automatic && Number.isFinite(firstStarted) ? Math.min(firstStarted, now) : now, rewriteStartedAt: now } };
     running = job;
     setStatus('正在准备重写');
@@ -233,6 +239,7 @@ async function rewrite(attempt, automatic = true) {
         job.timing.finishedAt = Date.now();
         if (job.inplace) await commitInplace(job, last);
         else await collapse(job, last);
+        job.completed = true;
         setStatus('重写已完成，原稿已保存为上一版');
     } catch (error) {
         job.timing.finishedAt ??= Date.now();
@@ -250,6 +257,7 @@ async function rewrite(attempt, automatic = true) {
     } finally {
         clearInplacePrompts(job);
         job.route?.release();
+        job.notice?.finish(Boolean(job.completed && !job.cancelled));
         showStaging();
         if (running === job) running = null;
         ui?.sync();
@@ -268,6 +276,7 @@ export function enable() {
     if (installed) return;
     globalThis[RUNTIME]?.disable?.();
     installed = true;
+    scheduler = createBackgroundScheduler(drainQueue);
     globalThis[RUNTIME] = { disable };
     const { eventTypes: events } = getContext();
     ui = createRewriteUI({ getSettings: settings, getView: view, onRewrite: manualRewrite, onJump: jump,
@@ -329,12 +338,14 @@ export function enable() {
         if (chatKey(ctx) !== cycle.key || Number(id) !== ctx.chat.length - 1 || !message
             || message.is_user || message.is_system || !text?.trim() || text.trim() === '...') return;
         pending = { cycleId: cycle.id, key: cycle.key, index: Number(id), message, text, swipeId: message.swipe_id ?? 0 };
+        cycle.notice ??= beginNotice();
         queue();
     });
     subscribe(events.GENERATION_ENDED, () => {
         if (!running) mvuReadyAt = Date.now() + 3100;
         ui?.refresh(); queue();
     });
+    subscribe('generation-notifications:finished', queue);
     subscribe(events.MESSAGE_EDITED, id => {
         // Automatic finalization may accept MVU's programmatic text additions,
         // but an explicit user edit still cancels the queued rewrite.
@@ -374,12 +385,25 @@ export function enable() {
         }
     });
     $(document).on('input.autoRewriteComposer change.autoRewriteComposer', '#send_textarea, #file_form_input', () => ui?.refresh());
+    document.addEventListener('visibilitychange', resumeBackgroundWork);
+    window.addEventListener('pageshow', resumeBackgroundWork);
     void recoverInterrupted();
+}
+
+function resumeBackgroundWork() {
+    if (!installed) return;
+    ui?.sync(); ui?.refresh();
+    queue();
+    if (!document.hidden) void recoverInterrupted();
 }
 
 export function disable() {
     installed = false;
     clearPending(); cycle = null;
+    scheduler?.dispose(); scheduler = null;
+    disposeBackgroundDelays();
+    document.removeEventListener('visibilitychange', resumeBackgroundWork);
+    window.removeEventListener('pageshow', resumeBackgroundWork);
     const job = running;
     if (job) {
         job.cancelled = true;

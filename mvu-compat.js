@@ -1,4 +1,5 @@
 import { getContext } from '../../../extensions.js';
+import { backgroundDelay } from './background-scheduler.js';
 
 // MVU stores a complete state in message.variables[swipe_id], outside swipe_info.
 // Keep only its own fields in the transaction so other scripts retain their data.
@@ -15,7 +16,7 @@ export async function waitMvuWindow(readyAt, isCurrent) {
     // before starting the second request so even a cached/short reply is parsed.
     while (Date.now() < readyAt || mvuBusy()) {
         if (!isCurrent()) throw new Error('重写已取消或聊天已变化');
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await backgroundDelay(100);
     }
     if (!isCurrent()) throw new Error('重写已取消或聊天已变化');
 }
@@ -85,7 +86,7 @@ export async function finishMvu(job, result, isCurrent) {
     // that keep their extra-model request running outside the native generation.
     while (mvuBusy()) {
         if (!isCurrent()) throw new Error('重写已取消或聊天已变化');
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await backgroundDelay(100);
     }
     if (!isCurrent()) throw new Error('重写已取消或聊天已变化');
     if (!isMvuData(activeData(result))) {

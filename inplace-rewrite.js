@@ -3,7 +3,7 @@ import { getContext } from '../../../extensions.js';
 import { SWIPE_DIRECTION, SWIPE_SOURCE } from '../../../constants.js';
 import { getRegexedString, regex_placement } from '../../regex/engine.js';
 import { REVISION, keyOf } from './revisions.js';
-import { restoreMvu, commitMvu, mergeSwipeVariables } from './mvu-compat.js';
+import { restoreMvu, commitMvu, mergeSwipeVariables, finishMvu, mvuTransaction } from './mvu-compat.js';
 
 const TRANSACTION = 'auto_rewrite_inplace';
 const clone = value => structuredClone(value);
@@ -83,12 +83,31 @@ export async function generateInplace(job) {
             forceSwipeId: job.targetSwipe, forceDuration: 0 });
     job.awaitingNativeSwipe = false;
     if (!job.nativeStarted || !ownsInplace(job)) throw new Error('原楼重写未开始或聊天已变化；请确认末页右箭头设为生成新版本');
+    const result = getInplaceReply(job);
+    if (result) return result;
+    throw new Error('未收到可用的同楼重写正文');
+}
+
+export function getInplaceReply(job) {
+    if (!job.nativeStarted || !ownsInplace(job)) return null;
     const ctx = getContext();
     for (let i = ctx.chat.length - 1; i > job.index; i--) {
         if (usable(ctx.chat[i])) return ctx.chat[i];
     }
-    if (usable(job.source) && job.source.swipe_id === job.targetSwipe) return job.source;
-    throw new Error('未收到可用的同楼重写正文');
+    // The old message text can remain visible before the new slot receives data.
+    // A populated target slot distinguishes a rewrite from the untouched draft.
+    if (usable(job.source) && job.source.swipe_id === job.targetSwipe
+        && typeof job.source.swipes?.[job.targetSwipe] === 'string'
+        && job.source.swipes[job.targetSwipe].trim() && job.source.swipes[job.targetSwipe].trim() !== '...') return job.source;
+    return null;
+}
+
+export function rememberStoppedInplace(job) {
+    if (!ownsInplace(job) || !usable(job.stoppedDraft)) return;
+    const draft = clone(job.stoppedDraft);
+    delete draft.extra?.[TRANSACTION];
+    job.source.extra[TRANSACTION].stopped = { draft, targetSwipe: job.targetSwipe, resultIndex: job.stoppedIndex,
+        timing: clone(job.timing), automatic: job.automatic };
 }
 
 export async function commitInplace(job, result) {
@@ -110,10 +129,12 @@ export async function commitInplace(job, result) {
     if (originalSwipe < 0 || originalSwipe >= original.swipes.length) originalSwipe = job.attempt.swipeId;
     final.extra[REVISION] = { id: job.id, originalSwipe, originalHash: fingerprint(original.swipes[originalSwipe]),
         sourceSwipe: job.attempt.swipeId, rewrittenSwipe: original.swipes.length,
-        automatic: job.automatic, timing: { ...job.timing }, inplace: true };
+        automatic: job.automatic, timing: { ...job.timing }, inplace: true,
+        stopped: Boolean(job.stopRequested), mvuPending: Boolean(job.mvuPending) };
     // Preserve any native tool-continuation records as an archive on this swipe.
     // Never copy tool invocations into prose or silently discard plugin records.
-    const intermediates = ctx.chat.slice(job.index + 1).filter(m => m !== result);
+    const intermediates = ctx.chat.slice(job.index + 1).filter((m, offset) => m !== result
+        && (!job.stopRequested || job.index + 1 + offset !== job.stoppedIndex));
     if (intermediates.length) final.extra[REVISION].intermediates = clone(intermediates);
     final.swipes = [...original.swipes, final.mes];
     final.swipe_id = original.swipes.length;
@@ -165,6 +186,17 @@ export async function recoverInplace() {
     const index = ctx.chat.findIndex(m => m.extra?.[TRANSACTION]?.original);
     if (index < 0) return false;
     const source = ctx.chat[index], record = source.extra[TRANSACTION];
+    if (usable(record.stopped?.draft)) {
+        const job = { id: record.id, index, source, original: record.original,
+            key: keyOf(ctx), prefix: ctx.chat.slice(0, index),
+            attempt: { swipeId: record.original.swipe_id ?? 0, text: record.original.mes },
+            targetSwipe: record.stopped.targetSwipe, stoppedIndex: record.stopped.resultIndex, timing: record.stopped.timing,
+            automatic: record.stopped.automatic, stopRequested: true, mvu: mvuTransaction(source) };
+        const result = clone(record.stopped.draft);
+        await finishMvu(job, result, () => ownsInplace(job));
+        await commitInplace(job, result);
+        return 'stopped';
+    }
     return restoreInplace({ id: record.id, index, source, original: record.original,
         key: keyOf(ctx), prefix: ctx.chat.slice(0, index), recovering: true });
 }

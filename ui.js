@@ -609,14 +609,14 @@ export function createRewriteUI({ getSettings, getView, getRouting, onRoute, onR
         const button = bar.querySelector('[data-rewrite]');
         const disabled = view.busy || !view.idle || view.composerBusy;
         button.disabled = disabled;
-        const text = view.busy ? view.cancelled ? '已取消' : '重写中…' : '重写';
+        const text = view.busy ? view.cancelled ? '已取消' : view.stopping ? '保存中…' : '重写中…' : '重写';
         if (button.querySelector('span').textContent !== text) button.querySelector('span').textContent = text;
         button.title = view.composerBusy ? '请先发送或清空输入框中的草稿与附件' : `重写当前第 ${view.reply.swipeId + 1} 版`;
         bar.dataset.busy = String(view.busy);
         const swipeCount = view.reply.message.swipes?.length || 1;
         const caption = view.busy
             ? `${view.reply.preview ? '重写中 · ' : ''}${view.status}`
-            : view.link?.original ? '正在看原稿' : view.link ? '已重写' : '';
+            : view.link?.original ? '正在看原稿' : view.stopped ? '已停止 · 重写稿已保留' : view.link ? '已重写' : '';
         const captionEl = bar.querySelector('[data-caption]');
         captionEl.hidden = !caption;
         if (captionEl.textContent !== caption) captionEl.textContent = caption;

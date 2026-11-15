@@ -82,12 +82,24 @@ export function resetMvuFeedback(job) {
 
 export async function finishMvu(job, result, isCurrent) {
     if (!job.mvu) return;
+    const preserveStopped = () => {
+        if (!job.stopRequested) return false;
+        if (!isCurrent()) throw new Error('聊天已变化，未覆盖新的内容');
+        // An incomplete reply must not launch another analysis after Stop.
+        // Keep parsed variables if ready, otherwise retain the turn baseline.
+        job.mvuPending = mvuBusy() || !isMvuData(activeData(result));
+        if (job.mvuPending) replaceFields(slot(result), job.mvu.baseline);
+        return true;
+    };
+    if (preserveStopped()) return;
     // Native generation awaits receive/render listeners. Also wait for MVU versions
     // that keep their extra-model request running outside the native generation.
     while (mvuBusy()) {
+        if (preserveStopped()) return;
         if (!isCurrent()) throw new Error('重写已取消或聊天已变化');
         await backgroundDelay(100);
     }
+    if (preserveStopped()) return;
     if (!isCurrent()) throw new Error('重写已取消或聊天已变化');
     if (!isMvuData(activeData(result))) {
         // MVU throttles MESSAGE_RECEIVED. A very fast second reply may therefore

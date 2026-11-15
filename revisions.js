@@ -1,7 +1,7 @@
 import * as core from '../../../../script.js';
 import { getContext } from '../../../extensions.js';
 import { SWIPE_DIRECTION, SWIPE_SOURCE } from '../../../constants.js';
-import { restoreMvu, commitMvu, mergeSwipeVariables, syncMvuChat, mvuTransaction } from './mvu-compat.js';
+import { restoreMvu, commitMvu, mergeSwipeVariables, syncMvuChat, mvuTransaction, finishMvu } from './mvu-compat.js';
 
 export const REVISION = 'auto_rewrite_revision';
 export const TEMP = 'auto_rewrite_temporary';
@@ -34,6 +34,12 @@ export function ownsTail(job, ctx = getContext()) {
         && job.prefix.every((message, i) => ctx.chat[i] === message)
         && ctx.chat[job.index + 1] === job.feedback && job.feedback?.extra?.[TEMP]?.id === job.id
         && ctx.chat.slice(job.index + 2).every(message => !message.is_user);
+}
+
+export function rememberStoppedFallback(job) {
+    if (!ownsTail(job) || !job.stoppedDraft?.mes?.trim()) return;
+    job.feedback.extra[TEMP].stopped = { draft: structuredClone(job.stoppedDraft),
+        timing: structuredClone(job.timing), automatic: job.automatic };
 }
 
 export function liveReply(job) {
@@ -153,7 +159,8 @@ export async function collapse(job, result) {
     const originalSwipe = Number.isInteger(inherited) && inherited >= 0 && inherited < original.swipes.length ? inherited : sourceSwipe;
     const rewrittenSwipe = original.swipes.length;
     final.extra[REVISION] = { id: job.id, originalSwipe, originalHash: fingerprint(original.swipes[originalSwipe]), sourceSwipe, rewrittenSwipe,
-        automatic: job.automatic, timing: { ...job.timing } };
+        automatic: job.automatic, timing: { ...job.timing },
+        stopped: Boolean(job.stopRequested), mvuPending: Boolean(job.mvuPending) };
     final.swipes = [...original.swipes, final.mes];
     final.swipe_id = rewrittenSwipe;
     final.swipe_info = [...original.swipe_info, info(final)];
@@ -226,6 +233,19 @@ export async function recover() {
     const source = ctx.chat[saved.index];
     const feedback = ctx.chat[saved.index + 1];
     if (!source || source.is_user || source.is_system || fingerprint(source.mes ?? '') !== saved.sourceHash || feedback?.extra?.[TEMP]?.id !== saved.id) return false;
+    const stopped = feedback.extra[TEMP].stopped;
+    if (stopped?.draft?.mes?.trim() && stopped.draft.mes.trim() !== '...') {
+        const job = { ...saved, key: keyOf(ctx), source, feedback,
+            prefix: ctx.chat.slice(0, saved.index), mvu: mvuTransaction(source),
+            attempt: { text: source.mes, swipeId: saved.sourceSwipe },
+            stopRequested: true, timing: stopped.timing, automatic: stopped.automatic };
+        restoreMvu(job);
+        job.original = structuredClone(source);
+        const result = structuredClone(stopped.draft);
+        await finishMvu(job, result, () => ownsTail(job));
+        await collapse(job, result);
+        return 'stopped';
+    }
     return restore({ ...saved, key: keyOf(ctx), source, feedback, prefix: ctx.chat.slice(0, saved.index),
         attempt: { text: source.mes, swipeId: saved.sourceSwipe } });
 }

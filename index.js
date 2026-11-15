@@ -6,6 +6,8 @@ import { getRegexedString, regex_placement } from '../../regex/engine.js';
 import { createRewriteUI } from './ui.js';
 import { createModelRouting } from './model-routing.js';
 import { mvuBusy, mvuFeedback, prepareMvu, resetMvuFeedback, finishMvu, syncMvuChat, waitMvuWindow } from './mvu-compat.js';
+import { canRewriteInplace, prepareInplace, generateInplace, commitInplace, restoreInplace,
+    recoverInplace, ownsInplace, updateInplacePrompts, clearInplacePrompts } from './inplace-rewrite.js';
 import { REVISION, TEMP, remember, collapse, restore, recover, markStaging, liveReply, showStaging, versionLink, jumpVersion } from './revisions.js';
 
 const KEY = 'rewrite_writer';
@@ -191,43 +193,51 @@ async function rewrite(attempt, automatic = true) {
     setStatus('正在准备重写');
     try {
         prepareMvu(job);
-        const { message, index } = appendFeedback(ctx, feedback + (job.mvu ? mvuFeedback : ''), job);
-        job.feedback = message;
-        resetMvuFeedback(job);
-        markStaging(job);
-        await ctx.saveChat();
-        if (!sameJob(job) || getContext().chat.at(-1) !== message) throw new Error('重写已取消或聊天已变化');
-        await ctx.eventSource.emit(ctx.eventTypes.MESSAGE_SENT, index);
-        if (!sameJob(job) || getContext().chat.at(-1) !== message) throw new Error('重写已取消或聊天已变化');
-        await ctx.eventSource.emit(ctx.eventTypes.USER_MESSAGE_RENDERED, index);
-        if (!sameJob(job) || getContext().chat.at(-1) !== message) throw new Error('重写已取消或聊天已变化');
-        resetMvuFeedback(job);
+        const instruction = feedback + (job.mvu ? mvuFeedback : '');
+        if (canRewriteInplace()) {
+            await prepareInplace(job, instruction);
+        } else {
+            const { message, index } = appendFeedback(ctx, instruction, job);
+            job.feedback = message;
+            resetMvuFeedback(job);
+            markStaging(job);
+            await ctx.saveChat();
+            if (!sameJob(job) || getContext().chat.at(-1) !== message) throw new Error('重写已取消或聊天已变化');
+            await ctx.eventSource.emit(ctx.eventTypes.MESSAGE_SENT, index);
+            if (!sameJob(job) || getContext().chat.at(-1) !== message) throw new Error('重写已取消或聊天已变化');
+            await ctx.eventSource.emit(ctx.eventTypes.USER_MESSAGE_RENDERED, index);
+            if (!sameJob(job) || getContext().chat.at(-1) !== message) throw new Error('重写已取消或聊天已变化');
+            resetMvuFeedback(job);
+        }
+        if (!sameJob(job)) throw new Error('重写已取消或聊天已变化');
         if (composerBusy()) {
             throw new Error('输入框中出现了新草稿或附件，本次重写已停止');
         }
         if (job.mvu) {
             setStatus('等待 MVU 解析窗口');
-            await waitMvuWindow(mvuReadyAt, () => sameJob(job) && getContext().chat.at(-1) === message);
+            await waitMvuWindow(mvuReadyAt, () => sameJob(job) && (job.inplace ? ownsInplace(job) : getContext().chat.at(-1) === job.feedback));
             if (composerBusy()) throw new Error('输入框中出现了新草稿或附件，本次重写已停止');
         }
-        // Standard generation, exactly as replying to the newly added user turn.
-        // This guard remains set through all native tool-call continuation requests.
+        // Keep the native event/tool pipeline. CC uses the real swipe handler;
+        // older/non-CC installations retain the ordinary-turn fallback.
         job.route = routing.acquire({ ...settings() }, () => sameJob(job) && job.generating && !mvuBusy());
         job.generating = true;
         setStatus(`${automatic ? '正在自动重写' : '正在重写'} · ${job.route.label}`);
-        await getContext().generate('normal', { automatic_trigger: true });
+        let last;
+        if (job.inplace) last = await generateInplace(job);
+        else { await getContext().generate('normal', { automatic_trigger: true }); last = getContext().chat.at(-1); }
         if (!sameJob(job)) throw new Error('重写已取消或聊天已变化');
-        const last = getContext().chat.at(-1);
-        if (!last || last === job.source || last.is_user || last.is_system || !last.mes?.trim() || last.mes.trim() === '...') throw new Error('未收到可用的重写正文');
+        if (!last || (!job.inplace && last === job.source) || last.is_user || last.is_system || !last.mes?.trim() || last.mes.trim() === '...') throw new Error('未收到可用的重写正文');
         if (job.mvu) setStatus('正在整理重写稿的 MVU 变量');
-        await finishMvu(job, last, () => sameJob(job) && getContext().chat.at(-1) === last);
+        await finishMvu(job, last, () => sameJob(job) && (job.inplace ? ownsInplace(job) : getContext().chat.at(-1) === last));
         job.timing.finishedAt = Date.now();
-        await collapse(job, last);
+        if (job.inplace) await commitInplace(job, last);
+        else await collapse(job, last);
         setStatus('重写已完成，原稿已保存为上一版');
     } catch (error) {
         job.timing.finishedAt ??= Date.now();
         if (!job.settled) {
-            const restored = await restore(job).catch(cleanupError => { console.error('[Auto Rewrite] Cleanup', cleanupError); return false; });
+            const restored = await (job.inplace ? restoreInplace(job) : restore(job)).catch(cleanupError => { console.error('[Auto Rewrite] Cleanup', cleanupError); return false; });
             if (installed && chatKey() === job.key) {
                 setStatus(restored ? job.cancelled ? '重写已取消，原稿已恢复' : '重写未完成，原稿已保留' : '聊天已变化，保留记录供检查，未覆盖新内容');
                 if (!job.cancelled) globalThis.toastr?.warning(`${status}：${error.message}`);
@@ -238,6 +248,7 @@ async function rewrite(attempt, automatic = true) {
         }
         if (!job.cancelled) console.error('[Auto Rewrite]', error);
     } finally {
+        clearInplacePrompts(job);
         job.route?.release();
         showStaging();
         if (running === job) running = null;
@@ -248,7 +259,7 @@ async function rewrite(attempt, automatic = true) {
 
 async function recoverInterrupted() {
     if (!installed || running || !isIdle()) return;
-    try { if (await recover()) setStatus('已清理中断的重写，原稿已恢复'); }
+    try { if (await recoverInplace() || await recover()) setStatus('已清理中断的重写，原稿已恢复'); }
     catch (error) { console.error('[Auto Rewrite] Recovery', error); }
     ui?.refresh();
 }
@@ -285,8 +296,19 @@ export function enable() {
         if (dryRun) return;
         // An MVU extra-model request belongs to the active turn, not a new
         // user generation that should take over or invalidate the rewrite.
-        if (mvuBusy()) return;
+        if (mvuBusy()) { if (running?.inplace) clearInplacePrompts(running); return; }
         if (running) {
+            if (running.inplace) {
+                if (type === 'quiet') { clearInplacePrompts(running); return; }
+                const rootSwipe = running.awaitingNativeSwipe && !running.nativeStarted && type === 'swipe';
+                const toolContinuation = running.nativeStarted && type === 'normal' && ownsInplace(running)
+                    && getContext().chat.slice(running.index + 1).some(m => Array.isArray(m.extra?.tool_invocations));
+                if (rootSwipe || toolContinuation) {
+                    running.nativeStarted = true;
+                    updateInplacePrompts(running, type);
+                    return;
+                }
+            }
             // Another extension started a request while feedback events were firing.
             if (!running.generating || !options?.automatic_trigger) { running.cancelled = true; running.timing.finishedAt ??= Date.now(); setStatus('已由其他生成流程接管'); }
             return;
@@ -361,6 +383,7 @@ export function disable() {
     const job = running;
     if (job) {
         job.cancelled = true;
+        clearInplacePrompts(job);
         if (job.generating) getContext().stopGeneration();
     }
     const ctx = getContext();

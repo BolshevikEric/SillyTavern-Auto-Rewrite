@@ -101,7 +101,7 @@ export function createVersionReader(onChange) {
         root = document.createElement('section');
         root.className = 'auto-rewrite-reader';
         root.setAttribute('role', 'region');
-        root.setAttribute('aria-label', '重写期间浏览正文版本');
+        root.setAttribute('aria-label', '重写时查看其他版本');
         root.tabIndex = -1;
         root.innerHTML = `<div class="auto-rewrite-reader-heading">
             <div class="auto-rewrite-reader-title"><i class="fa-solid fa-book-open" aria-hidden="true"></i><span><b data-version-label></b><small data-status>后台正在重写</small></span></div>

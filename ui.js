@@ -635,9 +635,9 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
         jump.hidden = !reading && (view.busy ? !view.canBrowse : !view.link);
         jump.disabled = !reading && !view.busy && !view.idle;
         jump.querySelector('span').textContent = reading ? view.busy ? '返回实时重写' : '查看重写结果'
-            : view.busy ? '浏览版本' : view.link?.label ?? '查看原稿';
+            : view.busy ? '查看其他版本' : view.link?.label ?? '查看原稿';
         jump.querySelector('i').className = `fa-solid ${reading ? 'fa-arrow-right' : view.busy ? 'fa-book-open' : 'fa-clock-rotate-left'}`;
-        jump.title = reading ? '结束阅读，回到重写稿' : view.busy ? '浏览原稿与历史版本，后台继续重写' : '切换正文版本';
+        jump.title = reading ? '结束阅读，回到重写稿' : view.busy ? '查看原稿和历史版本，重写会继续进行' : '切换正文版本';
         bar.querySelector('[data-auto]').checked = getSettings().auto;
         const timing = view.timing;
         const time = bar.querySelector('[data-time]');

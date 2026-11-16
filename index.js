@@ -98,11 +98,25 @@ function view() {
         ? liveReply(running) ?? { ...running.attempt, message: running.source, preview: !running.cancelled } : latestReply(ctx);
     const saved = reply?.message.extra?.[REVISION];
     // The native target swipe may be one past the array end until the first
-    // response. Version navigation is disabled for the entire transaction.
+    // response. Native version switches stay disabled; the reader uses snapshots.
     return { reply, link: running ? null : versionLink(reply), status, busy: Boolean(running), cancelled: Boolean(running?.cancelled),
         stopping: Boolean(running?.stopRequested), stopped: Boolean(saved?.stopped),
+        readerId: running?.id,
+        canBrowse: Boolean(running && chatKey(ctx) === running.key && ctx.chat[running.index] === running.source),
         idle: isIdle(ctx), composerBusy: composerBusy(), timing: running?.timing ?? saved?.timing,
         automatic: running ? running.automatic : saved?.automatic };
+}
+
+function readerSnapshot() {
+    const job = running, ctx = getContext();
+    if (!job || chatKey(ctx) !== job.key || ctx.chat[job.index] !== job.source) return null;
+    const texts = job.original.swipes?.length ? [...job.original.swipes] : [job.original.mes];
+    texts[job.attempt.swipeId] = job.attempt.text;
+    return { id: job.id, key: job.key, index: job.index, source: job.source, name: job.original.name,
+        sourceSwipe: job.attempt.swipeId,
+        versions: texts.map((text, index) => ({ text: typeof text === 'string' ? text : '',
+            displayText: index === job.attempt.swipeId ? job.original.extra?.display_text
+                : job.original.swipe_info?.[index]?.extra?.display_text })) };
 }
 
 function manualRewrite(attempt) {
@@ -312,7 +326,7 @@ export function enable() {
     scheduler = createBackgroundScheduler(drainQueue);
     globalThis[RUNTIME] = { disable };
     const { eventTypes: events } = getContext();
-    ui = createRewriteUI({ getSettings: settings, getView: view, onRewrite: manualRewrite, onJump: jump,
+    ui = createRewriteUI({ getSettings: settings, getView: view, getReader: readerSnapshot, onRewrite: manualRewrite, onJump: jump,
         getRouting: () => routing.describe(settings()),
         onRoute: value => { Object.assign(settings(), value); getContext().saveSettingsDebounced(); },
         onRefreshModels: signal => routing.refreshModels({ ...settings() }, signal),

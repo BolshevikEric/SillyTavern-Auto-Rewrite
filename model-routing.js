@@ -139,23 +139,28 @@ export function createModelRouting() {
         const mainCanProfile = document.getElementById('connection_profiles') instanceof HTMLSelectElement;
         const mainCanModel = ctx.mainApi === 'openai' && Boolean(mainModelControl(mainSource));
         const mainCanFetch = ctx.mainApi === 'openai' && CATALOG_SOURCES.has(mainSource);
-        let mainModels = [];
+        let mainModels = [], mainCatalogLoaded = false;
         if (ctx.mainApi === 'openai') {
-            try { mainModels = suggestions(targetFor({ profileId: '', model: '' })); } catch {}
+            try {
+                const mainTarget = targetFor({ profileId: '', model: '' });
+                mainModels = suggestions(mainTarget);
+                mainCatalogLoaded = catalogs.has(catalogKey(mainTarget));
+            } catch {}
         }
         try {
             const target = targetFor(selection);
             return { profiles: available, models: suggestions(target), source: target.source,
                 label: target.label, model: target.model,
                 mainProfiles, mainProfileId, mainSource, mainModel, mainModels,
-                mainCanProfile, mainCanModel, mainCanFetch,
+                mainCanProfile, mainCanModel, mainCanFetch, mainCatalogLoaded,
                 supported: ctx.mainApi === 'openai',
+                catalogLoaded: catalogs.has(catalogKey(target)),
                 canFetch: CATALOG_SOURCES.has(target.source), error: '' };
         } catch (error) {
             return { profiles: available, models: [], error: error.message, supported: false,
                 label: '', model: '',
                 mainProfiles, mainProfileId, mainSource, mainModel, mainModels,
-                mainCanProfile, mainCanModel, mainCanFetch };
+                mainCanProfile, mainCanModel, mainCanFetch, mainCatalogLoaded };
         }
     }
 

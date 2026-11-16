@@ -317,6 +317,7 @@ button.auto-rewrite-menu-item:focus-visible {
 button.auto-rewrite-menu-item[aria-selected="true"] {
     background: rgba(182,164,248,.24); color: #ebe5ff; font-weight: 600;
 }
+button.auto-rewrite-menu-item:disabled { opacity: .55; cursor: default; }
 .auto-rewrite-menu-check {
     flex: none; width: 12px; font-size: .76em; color: #b6a4f8;
     opacity: 0; transform: scale(.7);

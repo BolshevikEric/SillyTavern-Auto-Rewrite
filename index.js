@@ -5,6 +5,7 @@ import { hasPendingFileAttachment } from '../../../chats.js';
 import { getRegexedString, regex_placement } from '../../regex/engine.js';
 import { createRewriteUI } from './ui.js';
 import { createModelRouting } from './model-routing.js';
+import { ensureFeedbackLibrary, composedFeedback, rebindCharacter } from './feedback-library.js';
 import { createBackgroundScheduler, disposeBackgroundDelays } from './background-scheduler.js';
 import { mvuBusy, mvuFeedback, prepareMvu, resetMvuFeedback, finishMvu, syncMvuChat, waitMvuWindow } from './mvu-compat.js';
 import { canRewriteInplace, prepareInplace, generateInplace, commitInplace, restoreInplace,
@@ -41,6 +42,7 @@ function settings() {
     if (typeof all[KEY].feedback !== 'string' || all[KEY].feedback === PREVIOUS_DEFAULT_FEEDBACK) all[KEY].feedback = DEFAULT_FEEDBACK;
     if (typeof all[KEY].profileId !== 'string') all[KEY].profileId = '';
     if (typeof all[KEY].model !== 'string') all[KEY].model = '';
+    if (ensureFeedbackLibrary(all[KEY])) getContext().saveSettingsDebounced();
     return all[KEY];
 }
 
@@ -215,8 +217,9 @@ function appendFeedback(ctx, text, job) {
 async function rewrite(attempt, automatic = true, notice = null) {
     if (running) { notice?.finish(false); return; }
     const ctx = getContext();
-    const feedback = settings().feedback.trim();
-    if (!feedback) { notice?.finish(false); setStatus('请先填写修改意见'); ui?.openSettings(); return; }
+    const composition = composedFeedback(settings());
+    const feedback = composition.text;
+    if (!feedback) { notice?.finish(false); setStatus('当前没有生效的修改意见，请启用条目或设置绑定'); ui?.openLibrary(); return; }
     if (!matches(attempt, ctx) || !isIdle(ctx) || composerBusy()) { notice?.finish(false); return; }
     const now = Date.now();
     const firstStarted = Date.parse(attempt.message.gen_started);
@@ -339,15 +342,20 @@ export function enable() {
             if (!value) clearPending();
             setStatus(value ? '等待下一次生成' : running ? '当前重写继续进行，后续自动重写已关闭' : '自动重写已关闭');
         },
-        onFeedback: value => { settings().feedback = value; getContext().saveSettingsDebounced(); } });
+        onLibraryChange: () => { getContext().saveSettingsDebounced(); } });
     ui.install();
     subscribe(events.APP_READY, () => { ui?.install(); void recoverInterrupted(); });
     subscribe(events.SETTINGS_LOADED, () => { ui?.sync(); ui?.refresh(); });
     for (const type of [events.CONNECTION_PROFILE_CREATED, events.CONNECTION_PROFILE_UPDATED,
         events.CONNECTION_PROFILE_DELETED, events.CONNECTION_PROFILE_LOADED,
-        events.CHATCOMPLETION_MODEL_CHANGED, events.SETTINGS_UPDATED]) {
+        events.CHATCOMPLETION_MODEL_CHANGED, events.SETTINGS_UPDATED,
+        events.OAI_PRESET_CHANGED_AFTER, events.PRESET_CHANGED, events.CHARACTER_DELETED]) {
         if (type) subscribe(type, () => { ui?.sync(); ui?.refresh(); });
     }
+    subscribe(events.CHARACTER_RENAMED, (oldAvatar, newAvatar) => {
+        if (rebindCharacter(settings(), oldAvatar, newAvatar)) getContext().saveSettingsDebounced();
+        ui?.sync(); ui?.refresh();
+    });
     subscribe(events.GENERATION_STARTED, (type, options, dryRun) => {
         if (dryRun) return;
         // An MVU extra-model request belongs to the active turn, not a new

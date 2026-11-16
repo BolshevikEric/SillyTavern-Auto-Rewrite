@@ -1,4 +1,5 @@
 import { createVersionReader } from './version-reader.js';
+import { createFeedbackLibraryUI } from './feedback-library-ui.js';
 
 function duration(ms) {
     const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -222,7 +223,7 @@ function setDropdownButton(btn, items, value) {
     btn.dataset.value = value;
 }
 
-export function createRewriteUI({ getSettings, getView, getReader, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onFeedback, onRewrite, onJump, onMutation }) {
+export function createRewriteUI({ getSettings, getView, getReader, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onLibraryChange, onRewrite, onJump, onMutation }) {
     let settingsLauncher, settingsEntry, bar, footer, nativePager, pagerSlot, dialog, observer, frame, poll, clock, shown;
     let dock, dockViewport, dockObserver, dockPadding;
     let disposed = false;
@@ -239,6 +240,8 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
         if (!document.hidden) refresh();
     };
     const reader = createVersionReader(refresh);
+    const library = createFeedbackLibraryUI({ getSettings, createMenu: createFloatingMenu,
+        onChange: () => { onLibraryChange(); refresh(); }, onOpen: () => menu.close() });
     document.addEventListener('visibilitychange', onVisibility);
     const abortForm = (root, role) => {
         const prefix = `${root.dataset.formId}:${role ? `${role}` : ''}`;
@@ -291,11 +294,11 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
                 </div>
                 <div class="auto-rewrite-model-summary"><i class="fa-solid fa-arrow-turn-up" aria-hidden="true"></i><span data-route-summary></span></div>
             </section>
-            <label class="auto-rewrite-label">修改意见<textarea class="text_pole" rows="4" spellcheck="false" data-feedback></textarea></label>
+            <div data-feedback-library-placeholder></div>
             <p class="auto-rewrite-note">沿用当前写作预设。重写结束后恢复首轮连接，原稿保留为上一版。</p>
             <p class="auto-rewrite-status" data-status role="status"></p>`;
         root.querySelector('[data-auto]').addEventListener('change', event => { onAuto(event.target.checked); sync(); refresh(); });
-        root.querySelector('[data-feedback]').addEventListener('input', event => { onFeedback(event.target.value); sync(); });
+        root.querySelector('[data-feedback-library-placeholder]').replaceWith(library.summary());
 
         const openBtnMenu = (btn, onPick, box = btn) => {
             if (btn.disabled) return;
@@ -369,11 +372,10 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
         const settings = getSettings();
         const route = getRouting();
         const busy = getView().busy;
+        library.sync();
         for (const root of forms) {
             const seq = root.dataset.formId;
             root.querySelector('[data-auto]').checked = settings.auto;
-            const field = root.querySelector('[data-feedback]');
-            if (document.activeElement !== field) field.value = settings.feedback;
 
             // Main API group
             const mainProfileBtn = root.querySelector('[data-main-profile]');
@@ -686,9 +688,10 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
         }
         sync(); refresh();
     }
-    return { install, refresh, sync, openSettings, dispose() {
+    return { install, refresh, sync, openSettings, openLibrary: library.open, dispose() {
         disposed = true;
         reader.dispose();
+        library.dispose();
         document.removeEventListener('visibilitychange', onVisibility);
         observer?.disconnect();
         if (frame) cancelAnimationFrame(frame);

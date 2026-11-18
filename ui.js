@@ -239,8 +239,8 @@ function setDropdownButton(btn, items, value) {
 }
 
 export function createRewriteUI({ getSettings, getView, getReader, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onLibraryChange, onRewrite, onJump, onMutation }) {
-    let settingsLauncher, settingsEntry, bar, footer, nativePager, pagerSlot, dialog, observer, frame, poll, clock, shown;
-    let dock, dockViewport, dockObserver, dockPadding;
+    let settingsLauncher, settingsEntry, bar, dialog, observer, frame, poll, clock, shown;
+    let inlineNetworkLabel;
     let disposed = false;
     const forms = new Set();
     const requests = new Map();
@@ -543,11 +543,20 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
     const makeBar = () => {
         const root = document.createElement('div');
         root.className = 'auto-rewrite-actions';
-        root.innerHTML = `<div class="auto-rewrite-main"><button type="button" class="auto-rewrite-primary" data-rewrite><i class="fa-solid fa-pen-nib" aria-hidden="true"></i><span>重写</span></button>
-            <button type="button" class="auto-rewrite-secondary" data-jump><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i><span>查看原稿</span></button>
-            <div class="auto-rewrite-meta"><span data-caption></span><span class="auto-rewrite-time" data-time></span></div></div>
-            <div class="auto-rewrite-buttons"><label class="auto-rewrite-quick-toggle" title="生成结束后自动重写一次"><input type="checkbox" data-auto><span>自动</span></label>
-            <button type="button" class="auto-rewrite-icon-button" data-settings title="重写设置" aria-label="重写设置"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button></div>`;
+        root.setAttribute('role', 'group');
+        root.setAttribute('aria-label', '正文重写');
+        root.innerHTML = `<div class="auto-rewrite-main">
+            <button type="button" class="auto-rewrite-primary" data-rewrite><i class="fa-solid fa-pen-nib" aria-hidden="true"></i><span>重写正文</span></button>
+            <div class="auto-rewrite-meta" hidden>
+                <i class="fa-solid fa-circle-notch auto-rewrite-indicator" aria-hidden="true" hidden></i>
+                <span data-caption role="status"></span><span class="auto-rewrite-time" data-time></span>
+            </div>
+            <button type="button" data-jump><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i><span>查看原稿</span></button>
+        </div>
+        <div class="auto-rewrite-buttons">
+            <label class="auto-rewrite-quick-toggle" title="生成结束后自动重写一次"><input type="checkbox" role="switch" aria-label="自动重写" data-auto><span>自动重写</span></label>
+            <button type="button" class="auto-rewrite-icon-button" data-settings title="重写设置" aria-label="重写设置" aria-haspopup="dialog"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
+        </div>`;
         root.querySelector('[data-rewrite]').addEventListener('click', () => onRewrite(shown?.reply));
         root.querySelector('[data-jump]').addEventListener('click', () => {
             if (reader.isOpen()) reader.close(true);
@@ -557,77 +566,6 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
         root.querySelector('[data-auto]').addEventListener('change', event => { onAuto(event.target.checked); sync(); refresh(); });
         root.querySelector('[data-settings]').addEventListener('click', openSettings);
         return root;
-    };
-    const detachFooter = () => {
-        bar?.remove();
-        if (pagerSlot?.isConnected && nativePager?.parentElement === footer) pagerSlot.replaceWith(nativePager);
-        else pagerSlot?.remove();
-        footer?.remove();
-        footer = null; nativePager = null; pagerSlot = null;
-    };
-    const positionDock = () => {
-        if (!dock || !dockViewport) return;
-        const rect = dockViewport.getBoundingClientRect();
-        dock.style.left = `${rect.left + 8}px`;
-        dock.style.width = `${Math.max(0, rect.width - 16)}px`;
-        dock.style.bottom = `${Math.max(0, window.innerHeight - rect.bottom) + 8}px`;
-        const padding = `${Math.ceil(dock.getBoundingClientRect().height) + 16}px`;
-        if (dockViewport.style.getPropertyValue('--auto-rewrite-dock-space') !== padding) {
-            dockViewport.style.setProperty('--auto-rewrite-dock-space', padding);
-        }
-    };
-    const releaseDock = () => {
-        dockObserver?.disconnect(); dockObserver = null;
-        window.removeEventListener('resize', positionDock);
-        window.visualViewport?.removeEventListener('resize', positionDock);
-        window.visualViewport?.removeEventListener('scroll', positionDock);
-        if (dockViewport) {
-            dockViewport.classList.remove('auto-rewrite-docked');
-            for (const [key, value, priority] of dockPadding ?? []) {
-                if (value) dockViewport.style.setProperty(key, value, priority);
-                else dockViewport.style.removeProperty(key);
-            }
-        }
-        bar?.remove(); dock?.remove();
-        dock = null; dockViewport = null; dockPadding = null;
-    };
-    const removeBar = () => {
-        if (dock) releaseDock();
-        detachFooter(); bar = null;
-    };
-    const mountDock = () => {
-        if (dock) return;
-        detachFooter();
-        if (!bar) bar = makeBar();
-        dockViewport = document.getElementById('chat');
-        if (!dockViewport) return;
-        dockPadding = ['--auto-rewrite-dock-base', '--auto-rewrite-dock-space'].map(key =>
-            [key, dockViewport.style.getPropertyValue(key), dockViewport.style.getPropertyPriority(key)]);
-        dockViewport.style.setProperty('--auto-rewrite-dock-base', getComputedStyle(dockViewport).paddingBottom);
-        dockViewport.classList.add('auto-rewrite-docked');
-        dock = document.createElement('div');
-        dock.className = 'auto-rewrite-live-dock';
-        dock.append(bar);
-        document.body.append(dock);
-        positionDock();
-        dockObserver = new ResizeObserver(positionDock);
-        dockObserver.observe(dockViewport); dockObserver.observe(dock);
-        window.addEventListener('resize', positionDock);
-        window.visualViewport?.addEventListener('resize', positionDock);
-        window.visualViewport?.addEventListener('scroll', positionDock);
-    };
-    const mountBar = block => {
-        if (!bar) bar = makeBar();
-        nativePager = block.closest('.mes')?.querySelector('.swipeRightBlock');
-        if (!nativePager) { block.append(bar); return; }
-        // Move the real pager, preserving its handlers and native visibility rules.
-        // Remember its original location so disabling the extension restores it.
-        pagerSlot = document.createComment('auto-rewrite-native-pager');
-        nativePager.before(pagerSlot);
-        footer = document.createElement('div');
-        footer.className = 'auto-rewrite-footer';
-        footer.append(bar, nativePager);
-        block.append(footer);
     };
     function render() {
         if (disposed) return;
@@ -639,58 +577,72 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
             const node = root.querySelector('[data-status]');
             if (node.textContent !== view.status) node.textContent = view.status;
         }
-        if (view.busy) {
-            // Keep the same controls anchored to the viewport through temporary
-            // replies and tool continuations, rather than rebuilding each floor.
-            mountDock();
-        } else {
-            if (dock) releaseDock();
-            if (bar?.isConnected && Number(bar.closest('.mes')?.getAttribute('mesid')) !== view.reply?.index) removeBar();
-            if (!view.reply) { removeBar(); clearInterval(clock); clock = null; return; }
-            const block = document.querySelector(`#chat .mes[mesid="${view.reply.index}"] .mes_block`);
-            if (!block) return;
-            if (!bar?.isConnected) { detachFooter(); mountBar(block); }
+        const composer = document.getElementById('send_form');
+        if (!view.reply || !composer) {
+            if (bar) bar.hidden = true;
+            clearInterval(clock);
+            clock = null;
+            return;
         }
-        if (!bar || !view.reply) return;
-        const button = bar.querySelector('[data-rewrite]');
-        const disabled = view.busy || !view.idle || view.composerBusy;
-        button.disabled = disabled;
-        const text = view.busy ? view.cancelled ? '已取消' : view.stopping ? '保存中…' : '重写中…' : '重写';
-        if (button.querySelector('span').textContent !== text) button.querySelector('span').textContent = text;
-        button.title = view.composerBusy ? '请先发送或清空输入框中的草稿与附件' : `重写当前第 ${view.reply.swipeId + 1} 版`;
+        if (!bar) bar = makeBar();
+        if (bar.parentElement !== composer) composer.prepend(bar);
+        bar.hidden = false;
         bar.dataset.busy = String(view.busy);
-        const swipeCount = view.reply.message.swipes?.length || 1;
+
+        const button = bar.querySelector('[data-rewrite]');
+        button.hidden = view.busy;
+        button.disabled = view.busy || !view.idle || view.composerBusy;
+        button.querySelector('span').textContent = view.link ? '再写一版' : '重写正文';
+        button.classList.toggle('auto-rewrite-primary', !view.link);
+        button.title = view.composerBusy ? '请先发送或清空输入框中的草稿与附件' : `重写当前第 ${view.reply.swipeId + 1} 版`;
+
+        // This status is optional on upstream SillyTavern. Its label is replaced
+        // per request, so the label from the initial reply cannot enter this row.
+        const transportLabel = view.receiving && view.canBrowse
+            ? document.querySelector('#generation_network_status:not([hidden]) > [role="status"]') : null;
+        const networkLabel = transportLabel !== view.networkLabelAtStart ? transportLabel : null;
+        if (networkLabel && networkLabel !== inlineNetworkLabel) {
+            inlineNetworkLabel?.classList.remove('auto-rewrite-inline-network');
+            networkLabel.classList.add('auto-rewrite-inline-network');
+            inlineNetworkLabel = networkLabel;
+        }
+        const networkPhase = networkLabel?.textContent;
+        const phase = networkPhase === '请求已发出，等待上游响应' ? '等待模型响应' : networkPhase;
         const caption = view.busy
-            ? `${view.reply.preview ? '重写中 · ' : ''}${view.status}`
-            : view.link?.original ? '正在看原稿' : view.stopped ? '已停止 · 重写稿已保留' : view.link ? '已重写' : '';
-        const captionEl = bar.querySelector('[data-caption]');
-        captionEl.hidden = !caption;
+            ? phase ? `重写 · ${phase}` : view.receiving ? '正在重写' : view.status
+            : view.link?.original ? '原稿' : view.stopped ? '已停止，重写稿已保留' : view.link ? '重写稿' : '';
+        const meta = bar.querySelector('.auto-rewrite-meta');
+        meta.hidden = !caption;
+        const indicator = meta.querySelector('.auto-rewrite-indicator');
+        indicator.hidden = !view.busy || view.cancelled || view.stopping;
+        const captionEl = meta.querySelector('[data-caption]');
         if (captionEl.textContent !== caption) captionEl.textContent = caption;
         const jump = bar.querySelector('[data-jump]');
         const reading = reader.isOpen();
         jump.hidden = !reading && (view.busy ? !view.canBrowse : !view.link);
         jump.disabled = !reading && !view.busy && !view.idle;
-        jump.querySelector('span').textContent = reading ? view.busy ? '返回实时重写' : '查看重写结果'
-            : view.busy ? '查看其他版本' : view.link?.label ?? '查看原稿';
+        jump.querySelector('span').textContent = reading ? view.busy ? '回到重写' : '查看重写稿'
+            : view.busy ? '版本' : view.link?.label ?? '查看原稿';
         jump.querySelector('i').className = `fa-solid ${reading ? 'fa-arrow-right' : view.busy ? 'fa-book-open' : 'fa-clock-rotate-left'}`;
         jump.title = reading ? '结束阅读，回到重写稿' : view.busy ? '查看原稿和历史版本，重写会继续进行' : '切换正文版本';
         bar.querySelector('[data-auto]').checked = getSettings().auto;
         const timing = view.timing;
         const time = bar.querySelector('[data-time]');
-        const end = timing?.finishedAt ?? Date.now();
-        time.hidden = !timing;
-        const label = timing
-            ? `${view.automatic ? `总${duration(end - timing.startedAt)} · ` : ''}重写${duration(end - timing.rewriteStartedAt)}`
-            : '';
-        if (time.textContent !== label) time.textContent = label;
-        const meta = bar.querySelector('.auto-rewrite-meta');
-        meta.hidden = !caption && !timing;
+        const elapsed = timing ? duration((timing.finishedAt ?? Date.now()) - timing.rewriteStartedAt) : '';
+        time.hidden = !view.busy || !elapsed;
+        if (time.textContent !== elapsed) time.textContent = elapsed;
         const route = getRouting();
-        const mainText = route.mainModel ? `${route.mainModel}${route.mainSource ? ` (${route.mainSource})` : ''}` : (route.mainSource || '未选择');
         const rewriteText = route.error || `${route.label} · ${route.model || '默认模型'}`;
-        meta.title = `第 ${view.reply.swipeId + 1}/${swipeCount} 版${caption ? ` · ${caption}` : ''}${label ? ` · ${label}` : ''}\n主 API：${mainText} → 重写：${rewriteText}`;
-        if (view.busy && !timing?.finishedAt && !clock) clock = setInterval(refresh, 1000);
-        if ((!view.busy || timing?.finishedAt) && clock) { clearInterval(clock); clock = null; }
+        const swipeCount = view.reply.message.swipes?.length || 1;
+        meta.title = [
+            `第 ${view.reply.swipeId + 1}/${swipeCount} 版`,
+            networkPhase || caption,
+            elapsed && `重写用时 ${elapsed}`,
+            networkLabel?.nextElementSibling?.textContent.replace(/^ · [^·]+(?: · |$)/, ''),
+            `重写模型：${rewriteText}`,
+        ].filter(Boolean).join('\n');
+        if (view.busy && !clock) clock = setInterval(refresh, 1000);
+        if (!view.busy && clock) { clearInterval(clock); clock = null; }
         if (!view.idle && !view.busy && !poll) poll = setTimeout(() => { poll = null; refresh(); }, 200);
     }
     function install() {
@@ -735,6 +687,7 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
         menu.destroy();
         for (const request of requests.values()) request.abort();
         requests.clear();
-        dialog?.close(); settingsLauncher?.remove(); settingsEntry?.remove(); removeBar(); forms.clear();
+        inlineNetworkLabel?.classList.remove('auto-rewrite-inline-network');
+        dialog?.close(); settingsLauncher?.remove(); settingsEntry?.remove(); bar?.remove(); forms.clear();
     } };
 }

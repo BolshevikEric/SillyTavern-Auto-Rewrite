@@ -123,10 +123,10 @@ function view() {
     // response. Native version switches stay disabled; the reader uses snapshots.
     return { reply, link: running ? null : versionLink(reply), status, busy: Boolean(running), cancelled: Boolean(running?.cancelled),
         stopping: Boolean(running?.stopRequested), stopped: Boolean(saved?.stopped),
-        readerId: running?.id,
+        readerId: running?.id, networkLabelAtStart: running?.networkLabelAtStart,
+        receiving: Boolean(running?.generating && !running.generationFinished && !running.stopRequested && !running.cancelled),
         canBrowse: Boolean(running && chatKey(ctx) === running.key && ctx.chat[running.index] === running.source),
-        idle: isIdle(ctx), composerBusy: composerBusy(), timing: running?.timing ?? saved?.timing,
-        automatic: running ? running.automatic : saved?.automatic };
+        idle: isIdle(ctx), composerBusy: composerBusy(), timing: running?.timing ?? saved?.timing };
 }
 
 function readerSnapshot() {
@@ -280,6 +280,7 @@ async function rewrite(attempt, automatic = true, notice = null) {
         // Keep the native event/tool pipeline. CC uses the real swipe handler;
         // older/non-CC installations retain the ordinary-turn fallback.
         job.route = routing.acquire({ ...settings() }, () => sameJob(job) && job.generating && !mvuBusy());
+        job.networkLabelAtStart = document.querySelector('#generation_network_status > [role="status"]');
         job.generating = true;
         setStatus(`${automatic ? '正在自动重写' : '正在重写'} · ${job.route.label}`);
         let last;
@@ -288,11 +289,13 @@ async function rewrite(attempt, automatic = true, notice = null) {
             else { await getContext().generate('normal', { automatic_trigger: true }); last = getContext().chat.at(-1); }
         } catch (error) {
             if (!job.stopRequested || !job.stoppedDraft || !sameJob(job)) throw error;
+        } finally {
+            job.generationFinished = true;
         }
         if (job.stopRequested && job.stoppedDraft) last = job.stoppedDraft;
         if (!sameJob(job)) throw new Error('重写已取消或聊天已变化');
         if (!last || (!job.inplace && last === job.source) || last.is_user || last.is_system || !last.mes?.trim() || last.mes.trim() === '...') throw new Error('未收到可用的重写正文');
-        if (job.mvu && !job.stopRequested) setStatus('正在整理重写稿的 MVU 变量');
+        if (!job.stopRequested) setStatus(job.mvu ? '正在整理重写稿的 MVU 变量' : '正在保存重写稿');
         await finishMvu(job, last, () => sameJob(job) && (job.inplace ? ownsInplace(job)
             : job.stopRequested ? ownsTail(job) : getContext().chat.at(-1) === last));
         job.timing.finishedAt ??= Date.now();
@@ -360,7 +363,7 @@ export function enable() {
         onAuto: value => {
             settings().auto = value; getContext().saveSettingsDebounced();
             if (!value) clearPending();
-            setStatus(value ? '等待下一次生成' : running ? '当前重写继续进行，后续自动重写已关闭' : '自动重写已关闭');
+            if (!running) setStatus(value ? '等待下一次生成' : '自动重写已关闭');
         },
         onLibraryChange: () => { getContext().saveSettingsDebounced(); } });
     ui.install();

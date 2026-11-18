@@ -4,7 +4,7 @@ import { REVISION, keyOf } from './revisions.js';
 
 // Reading a saved version never changes the native streaming swipe or variables.
 export function createVersionReader(onChange) {
-    let session, root, messageElement, scrollLease;
+    let session, root, body, messageElement, scrollLease;
     const covered = new Set();
 
     function restoreScroll() {
@@ -20,7 +20,7 @@ export function createVersionReader(onChange) {
     function close(follow = false) {
         const current = session && keyOf(getContext()) === session.key;
         session = null;
-        root?.remove(); root = null;
+        root?.remove(); root = null; body = null;
         messageElement?.classList.remove('auto-rewrite-reading'); messageElement = null;
         for (const element of covered) element.classList.remove('auto-rewrite-reader-covered');
         covered.clear();
@@ -63,8 +63,7 @@ export function createVersionReader(onChange) {
 
     function paint(align = true) {
         const version = session.versions[session.selected];
-        const body = root.querySelector('[data-body]');
-        const text = typeof version.displayText === 'string' ? version.displayText : version.text;
+        const text = typeof version.displayText === 'string' && version.displayText ? version.displayText : version.text;
         try {
             body.innerHTML = messageFormatting(text, session.name, false, false,
                 session.index === 0 ? -1 : session.index);
@@ -115,13 +114,31 @@ export function createVersionReader(onChange) {
                 </div>
                 <button type="button" class="auto-rewrite-reader-return" data-return>回到重写</button>
             </div>
-        </div><div class="auto-rewrite-reader-body" data-body></div>`;
+        </div><div class="auto-rewrite-reader-body"></div>`;
+
+        // SillyTavern scopes message CSS to .mes_text. Keep that class inside
+        // the shadow tree so streaming and message plugins still find only the live body.
+        const shadow = root.querySelector('.auto-rewrite-reader-body').attachShadow({ mode: 'open' });
+        const nativeStyles = document.createElement('link');
+        nativeStyles.rel = 'stylesheet';
+        nativeStyles.href = new URL('../../../../style.css', import.meta.url).href;
+        const previewStyles = document.createElement('style');
+        previewStyles.textContent = `
+            .mes_text { white-space: normal; }
+            .mes_text.auto-rewrite-reader-plain { white-space: pre-wrap; }
+            .mes_text q::before, .mes_text q::after { content: none; }
+        `;
+        body = document.createElement('div');
+        body.className = 'mes_text';
+        shadow.append(nativeStyles, previewStyles, body);
+
         root.querySelector('[data-prev]').addEventListener('click', () => page(-1));
         root.querySelector('[data-next]').addEventListener('click', () => page(1));
         root.querySelector('[data-return]').addEventListener('click', () => close(true));
         root.addEventListener('keydown', event => {
+            const target = event.composedPath()[0];
             if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
-                || event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+                || (target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"]'))) return;
             if (!['ArrowLeft', 'ArrowRight', 'Escape'].includes(event.key)) return;
             event.preventDefault(); event.stopPropagation();
             if (event.key === 'Escape') close(true);

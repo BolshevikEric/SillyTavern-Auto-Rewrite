@@ -56,22 +56,7 @@
 .auto-rewrite-reader-heading button:focus-visible { outline: 2px solid var(--SmartThemeQuoteColor, currentColor); outline-offset: -2px; }
 .auto-rewrite-reader-heading .auto-rewrite-reader-return { color: var(--SmartThemeQuoteColor, inherit); }
 
-/* Formatted chat HTML already contains paragraphs and explicit line breaks. */
-.auto-rewrite-reader-body {
-    padding: 5px var(--mes-right-spacing, 0px) 5px 0;
-    font-weight: 500;
-    line-height: calc(var(--mainFontSize, 1em) + .5rem);
-    white-space: normal;
-    overflow-wrap: anywhere;
-}
-.auto-rewrite-reader-body.auto-rewrite-reader-plain { white-space: pre-wrap; }
-.auto-rewrite-reader-body p { margin: 0 0 10px; }
-.auto-rewrite-reader-body p:last-child { margin-bottom: 0; }
-.auto-rewrite-reader-body q { color: var(--SmartThemeQuoteColor,inherit); }
-.auto-rewrite-reader-body em { color: var(--SmartThemeEmColor,inherit); }
-.auto-rewrite-reader-body img, .auto-rewrite-reader-body video { max-width: 100%; height: auto; }
-.auto-rewrite-reader-body pre { max-width: 100%; box-sizing: border-box; padding: 12px; overflow-x: auto; border-radius: 9px; background: rgba(0,0,0,.12); white-space: pre; }
-.auto-rewrite-reader-body table { display: block; max-width: 100%; overflow-x: auto; }
+.auto-rewrite-reader-body { min-width: 0; }
 .extension_container.auto-rewrite-entry {
     display: flex; align-items: center; gap: 8px; box-sizing: border-box;
     width: 100%; min-width: 0; padding: 4px 8px; margin: 0 0 4px;

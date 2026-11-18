@@ -286,11 +286,12 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         root.className = 'auto-rewrite-controls';
         const seq = ++formSequence;
         root.dataset.formId = String(seq);
-        root.innerHTML = `<label class="auto-rewrite-setting-toggle"><span><b>自动重写一次</b><small>首轮结束后，按修改意见再写一版</small></span><input type="checkbox" data-auto></label>
-            <section class="auto-rewrite-model-card" aria-label="模型与 API 设置">
-                <div class="auto-rewrite-model-heading"><span class="auto-rewrite-model-icon"><i class="fa-solid fa-layer-group" aria-hidden="true"></i></span><div><b>API 与模型</b><small>可直接切换主 API，也能为第二轮重写单独指定模型</small></div></div>
+        root.innerHTML = `<label class="auto-rewrite-setting-toggle"><span><b>首轮完成后自动重写</b></span><input type="checkbox" data-auto></label>
+            <div data-feedback-library-placeholder></div>
+            <details open class="auto-rewrite-model-card" aria-label="模型与 API 设置">
+                <summary class="auto-rewrite-disclosure"><b>模型设置</b><span data-route-summary></span></summary>
                 <div class="auto-rewrite-route-group" data-group="main">
-                    <div class="auto-rewrite-route-title"><span class="auto-rewrite-role-tag">首轮 · 主 API</span><small>全局生效，影响正常聊天</small><span class="auto-rewrite-model-badge" data-main-source></span></div>
+                    <div class="auto-rewrite-route-title"><span class="auto-rewrite-role-tag">聊天模型（全局）</span></div>
                     <div class="auto-rewrite-route-fields">
                         <div class="auto-rewrite-label"><span>API 配置</span><button type="button" class="auto-rewrite-select-btn" data-main-profile aria-haspopup="listbox" aria-expanded="false" aria-label="主 API 连接配置"><span class="auto-rewrite-select-text" data-btn-label></span><span class="auto-rewrite-select-tag" data-btn-tag hidden></span><i class="fa-solid fa-chevron-down auto-rewrite-caret" aria-hidden="true"></i></button></div>
                         <div class="auto-rewrite-label"><span>模型型号</span><div class="auto-rewrite-combo"><input type="text" autocomplete="off" spellcheck="false" data-main-model aria-label="主 API 模型型号"><button type="button" class="auto-rewrite-combo-btn auto-rewrite-picker-btn" data-main-picker aria-haspopup="listbox" aria-expanded="false" title="从列表选择主模型" aria-label="展开主模型列表"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button><button type="button" class="auto-rewrite-combo-btn" data-refresh-main title="读取主 API 的模型列表" aria-label="刷新主 API 模型列表"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button></div></div>
@@ -298,17 +299,14 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
                     <p class="auto-rewrite-model-hint" data-main-hint hidden></p>
                 </div>
                 <div class="auto-rewrite-route-group" data-group="rewrite">
-                    <div class="auto-rewrite-route-title"><span class="auto-rewrite-role-tag is-accent">二轮 · 重写</span><small>仅重写借用，写完自动恢复</small><span class="auto-rewrite-model-badge is-accent" data-source></span></div>
+                    <div class="auto-rewrite-route-title"><span class="auto-rewrite-role-tag is-accent">重写专用</span></div>
                     <div class="auto-rewrite-route-fields">
                         <div class="auto-rewrite-label"><span>API 配置</span><button type="button" class="auto-rewrite-select-btn" data-profile aria-haspopup="listbox" aria-expanded="false" aria-label="重写使用的 API 配置"><span class="auto-rewrite-select-text" data-btn-label></span><span class="auto-rewrite-select-tag" data-btn-tag hidden></span><i class="fa-solid fa-chevron-down auto-rewrite-caret" aria-hidden="true"></i></button></div>
                         <div class="auto-rewrite-label"><span>模型型号</span><div class="auto-rewrite-combo"><input type="text" autocomplete="off" spellcheck="false" data-model aria-label="重写模型型号"><button type="button" class="auto-rewrite-combo-btn auto-rewrite-picker-btn" data-model-picker aria-haspopup="listbox" aria-expanded="false" title="从列表选择重写模型" aria-label="展开重写模型列表"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button><button type="button" class="auto-rewrite-combo-btn" data-refresh-models title="读取重写 API 的模型列表" aria-label="刷新重写模型列表"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button></div></div>
                     </div>
                     <p class="auto-rewrite-model-hint" data-model-hint></p>
                 </div>
-                <div class="auto-rewrite-model-summary"><i class="fa-solid fa-arrow-turn-up" aria-hidden="true"></i><span data-route-summary></span></div>
-            </section>
-            <div data-feedback-library-placeholder></div>
-            <p class="auto-rewrite-note">沿用当前写作预设。重写结束后恢复首轮连接，原稿保留为上一版。</p>
+                </details>
             <p class="auto-rewrite-status" data-status role="status"></p>`;
         root.querySelector('[data-auto]').addEventListener('change', event => { onAuto(event.target.checked); sync(); refresh(); });
         root.querySelector('[data-feedback-library-placeholder]').replaceWith(library.summary());
@@ -434,7 +432,6 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             if (menu.isOpenFor(mainPicker) && mainPicker.disabled) menu.close();
             menu.update({ anchor: mainPicker, items: mainModelItems, value: route.mainModel });
 
-            root.querySelector('[data-main-source]').textContent = route.mainSource || '未选择';
             const mainRefreshBtn = root.querySelector('[data-refresh-main]');
             mainRefreshBtn.disabled = busy || !route.mainCanFetch || mainLoading;
             mainRefreshBtn.classList.toggle('is-loading', mainLoading);
@@ -475,19 +472,14 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             if (menu.isOpenFor(rewritePicker) && rewritePicker.disabled) menu.close();
             menu.update({ anchor: rewritePicker, items: rewriteModelItems, value: settings.model });
 
-            root.querySelector('[data-source]').textContent = route.source || '未选择';
             const rewriteRefreshBtn = root.querySelector('[data-refresh-models]');
             rewriteRefreshBtn.disabled = busy || !route.supported || rewriteLoading;
             rewriteRefreshBtn.classList.toggle('is-loading', rewriteLoading);
             rewriteRefreshBtn.querySelector('i').classList.toggle('fa-spin', rewriteLoading);
             root.querySelector('[data-model-hint]').textContent = route.error || (!route.supported
                 ? '模型选择支持聊天补全 API；未指定时仍沿用当前连接。'
-                : root.dataset.modelsMessage || (route.canFetch ? '打开下拉框会自动读取该 API 的模型；也可手动填写或点击右侧刷新。' : '点击 ▾ 从菜单选择已有型号，也可手动输入准确名称。'));
-            const mainText = route.mainModel
-                ? `${route.mainModel}${route.mainSource ? ` (${route.mainSource})` : ''}`
-                : (route.mainSource || '未选择');
-            const rewriteText = route.error || `${route.label} · ${route.model || '默认模型'}`;
-            root.querySelector('[data-route-summary]').textContent = `主 API：${mainText}  →  重写：${rewriteText}`;
+                : root.dataset.modelsMessage || '');
+            root.querySelector('[data-route-summary]').textContent = route.error || settings.model || route.model || '跟随当前模型';
         }
         if (bar) bar.querySelector('[data-auto]').checked = settings.auto;
         if (settingsLauncher) {
@@ -503,7 +495,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         dialog.setAttribute('aria-label', '正文重写设置');
         const heading = document.createElement('div');
         heading.className = 'auto-rewrite-dialog-heading';
-        heading.innerHTML = '<div><small>REWRITE</small><h3>正文重写</h3></div><button type="button" class="auto-rewrite-icon-button" aria-label="关闭设置"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>';
+        heading.innerHTML = '<div><h3>重写设置</h3></div><button type="button" class="auto-rewrite-icon-button" aria-label="关闭设置"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>';
         const form = controls();
         const activeDialog = dialog;
         let backdropPressed = false;
@@ -590,7 +582,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         button.disabled = view.busy || !view.idle || view.composerBusy;
         button.querySelector('span').textContent = view.link ? '再写一版' : '重写正文';
         button.classList.toggle('auto-rewrite-primary', !view.link);
-        button.title = view.composerBusy ? '请先发送或清空输入框中的草稿与附件' : `重写当前第 ${view.reply.swipeId + 1} 版`;
+        button.title = view.blocker || (view.composerBusy ? '请先发送或清空输入框中的草稿与附件' : `重写当前第 ${view.reply.swipeId + 1} 版`);
 
         // This status is optional on upstream SillyTavern. Its label is replaced
         // per request, so the label from the initial reply cannot enter this row.
@@ -606,7 +598,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         const phase = networkPhase === '请求已发出，等待上游响应' ? '等待模型响应' : networkPhase;
         const caption = view.busy
             ? phase ? `重写 · ${phase}` : view.receiving ? '正在重写' : view.status
-            : view.link?.original ? '原稿' : view.stopped ? '已停止，重写稿已保留' : view.link ? '重写稿' : '';
+            : view.blocker || (view.link?.original ? '原稿' : view.stopped ? '已停止，重写稿已保留' : view.link ? '重写稿' : '');
         const meta = bar.querySelector('.auto-rewrite-meta');
         meta.hidden = !caption;
         const indicator = meta.querySelector('.auto-rewrite-indicator');

@@ -437,3 +437,57 @@ button.auto-rewrite-menu-item[aria-selected="true"] .auto-rewrite-menu-check { o
 @media (prefers-reduced-motion: reduce) {
     .auto-rewrite-library-dialog button { transition: none; }
 }
+
+/* Settings disclosures share one visual rhythm with the editor. */
+details.auto-rewrite-model-card, .auto-rewrite-entry-options {
+    display: block;
+    padding: 0;
+    border: 1px solid rgba(182,164,248,.2);
+    border-radius: 12px;
+    background: rgba(128,128,151,.05);
+}
+.auto-rewrite-disclosure {
+    display: flex;
+    align-items: center;
+    gap: .75em;
+    padding: .85em 1em;
+    cursor: pointer;
+    list-style: none;
+}
+.auto-rewrite-disclosure::-webkit-details-marker { display: none; }
+.auto-rewrite-disclosure b { flex: none; font-size: 1em; }
+.auto-rewrite-disclosure span {
+    margin-inline-start: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: .8;
+    font-size: .9em;
+}
+.auto-rewrite-disclosure::after {
+    content: '';
+    flex: none;
+    width: .45em;
+    height: .45em;
+    border: solid currentColor;
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+}
+details[open] > .auto-rewrite-disclosure::after { transform: rotate(225deg); }
+.auto-rewrite-disclosure:focus-visible { outline: 2px solid #b6a4f8; outline-offset: -3px; }
+.auto-rewrite-model-card .auto-rewrite-route-group,
+.auto-rewrite-entry-options > :not(summary) { margin: 0 1em .9em; }
+.auto-rewrite-model-card .auto-rewrite-label,
+.auto-rewrite-library-content-label { font-size: .94em; }
+.auto-rewrite-model-hint:empty { display: none; }
+.auto-rewrite-library-content-label > textarea {
+    height: clamp(12rem, 40vh, 30rem);
+    font-size: 1em;
+    line-height: 1.65;
+}
+.auto-rewrite-library-heading h3 { margin: 0; }
+.auto-rewrite-library-summary .auto-rewrite-library-context { overflow-wrap: anywhere; }
+.auto-rewrite-library-bindings > [data-context] { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+    .auto-rewrite-library-content-label > textarea { height: 28vh; min-height: 9rem; }
+}

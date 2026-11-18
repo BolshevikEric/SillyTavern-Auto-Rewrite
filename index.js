@@ -78,12 +78,20 @@ function composerBusy() {
     return Boolean(document.getElementById('send_textarea')?.value.trim()) || hasPendingFileAttachment();
 }
 
+function rewriteBlocker(ctx = getContext()) {
+    if (core.isChatSaving) return '正在保存聊天';
+    const stream = ctx.streamingProcessor;
+    if (stream?.isFinished || stream?.isFinalizing || stream?.isStopped) return '正在完成回复收尾';
+    if (core.is_send_press || stream) return '正在生成回复';
+    if (core.swipeState === SWIPE_STATE.SWIPING) return '正在切换回复版本';
+    if (core.swipeState === SWIPE_STATE.EDITING
+        || document.querySelector('#chat :is(.edit_textarea, .reasoning_edit_textarea, .mes_edit_textarea)')) return '正在编辑消息';
+    if (mvuBusy()) return '正在解析 MVU 变量';
+    return '';
+}
+
 function isIdle(ctx = getContext()) {
-    // A finished stream can still be saving or emitting message events. Wait until
-    // core releases it entirely; no private finalization flag or core patch is needed.
-    return !core.is_send_press && !core.isChatSaving && !ctx.streamingProcessor
-        && (core.swipeState == null || core.swipeState === SWIPE_STATE.NONE)
-        && !document.querySelector('.mes_edit_textarea') && !mvuBusy();
+    return !rewriteBlocker(ctx);
 }
 
 function setStatus(text) {
@@ -119,6 +127,7 @@ function view() {
     const reply = running && chatKey(ctx) === running.key && ctx.chat[running.index] === running.source
         ? liveReply(running) ?? { ...running.attempt, message: running.source, preview: !running.cancelled } : latestReply(ctx);
     const saved = reply?.message.extra?.[REVISION];
+    const blocker = rewriteBlocker(ctx);
     // The native target swipe may be one past the array end until the first
     // response. The native history picker uses the saved versions.
     return { reply, link: running ? null : versionLink(reply), status, busy: Boolean(running), cancelled: Boolean(running?.cancelled),
@@ -126,7 +135,7 @@ function view() {
         networkLabelAtStart: running?.networkLabelAtStart,
         receiving: Boolean(running?.generating && !running.generationFinished && !running.stopRequested && !running.cancelled),
         canBrowse: Boolean(running && !running.cancelled && chatKey(ctx) === running.key && ctx.chat[running.index] === running.source),
-        idle: isIdle(ctx), composerBusy: composerBusy(), timing: running?.timing ?? saved?.timing };
+        idle: !blocker, blocker, composerBusy: composerBusy(), timing: running?.timing ?? saved?.timing };
 }
 
 async function openVersions() {
@@ -150,14 +159,17 @@ async function openVersions() {
 
 function manualRewrite(attempt) {
     if (!attempt || running) return;
-    if (!matches(attempt) || !isIdle()) {
-        globalThis.toastr?.info('请等生成、保存或翻页完成后，再点击当前版本的重写。');
-        ui?.refresh(); return;
+    const ctx = getContext();
+    // The same saved version can acquire new text before the next render.
+    // Keep the chat, message and swipe guards, then read the current text.
+    const reply = latestReply(ctx);
+    if (!reply || !matches(attempt, ctx, false) || !isIdle(ctx) || composerBusy()) {
+        ui?.refresh();
+        return;
     }
-    if (composerBusy()) { globalThis.toastr?.info('请先发送或清空输入框中的草稿与附件。'); return; }
     clearPending();
     if (cycle) cycle.attempted = true;
-    void rewrite(attempt, false);
+    void rewrite(reply, false);
 }
 
 async function jump(attempt, target) {
@@ -189,7 +201,8 @@ function drainQueue() {
         setStatus('聊天或回复已变化，已取消本次自动重写');
         return;
     }
-    if (!isIdle(ctx)) { setStatus('等待首轮生成和保存完成'); scheduler?.retry(); return; }
+    const blocker = rewriteBlocker(ctx);
+    if (blocker) { setStatus(blocker); scheduler?.retry(); return; }
     if (composerBusy()) { setStatus('输入框有草稿或附件，暂缓自动重写'); scheduler?.retry(); return; }
     // Capture the finalized text after receive/render handlers and MVU's
     // extra-model parsing, rather than before their status/variable additions.
@@ -477,7 +490,7 @@ export function enable() {
         void recoverInterrupted();
     });
     subscribe(events.CHAT_LOADED, () => { ui?.install(); void recoverInterrupted(); });
-    for (const type of [events.MESSAGE_SWIPED, events.MESSAGE_UPDATED, events.MESSAGE_DELETED,
+    for (const type of [events.MESSAGE_SWIPED, events.MESSAGE_UPDATED, events.MESSAGE_EDITED, events.MESSAGE_DELETED,
         events.CHARACTER_MESSAGE_RENDERED, events.MORE_MESSAGES_LOADED]) subscribe(type, () => ui?.refresh());
     subscribe(events.MESSAGE_SENT, id => {
         if (running && getContext().chat[Number(id)] !== running.feedback) {

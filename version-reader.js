@@ -68,14 +68,16 @@ export function createVersionReader(onChange) {
         try {
             body.innerHTML = messageFormatting(text, session.name, false, false,
                 session.index === 0 ? -1 : session.index);
+            body.classList.remove('auto-rewrite-reader-plain');
         } catch (error) {
             console.warn('[Auto Rewrite] Version formatting', error);
             body.textContent = text;
+            body.classList.add('auto-rewrite-reader-plain');
         }
         root.querySelector('[data-counter]').textContent = `${session.selected + 1} / ${session.versions.length}`;
         root.querySelector('[data-prev]').disabled = session.selected === 0;
         root.querySelector('[data-next]').disabled = session.selected === session.versions.length - 1;
-        const label = session.selected === session.sourceSwipe ? '本次重写的原稿' : '历史版本';
+        const label = session.selected === session.sourceSwipe ? '原稿' : '历史版本';
         root.querySelector('[data-version-label]').textContent = label;
         mount();
         if (align) {
@@ -104,10 +106,16 @@ export function createVersionReader(onChange) {
         root.setAttribute('aria-label', '重写时查看其他版本');
         root.tabIndex = -1;
         root.innerHTML = `<div class="auto-rewrite-reader-heading">
-            <div class="auto-rewrite-reader-title"><i class="fa-solid fa-book-open" aria-hidden="true"></i><span><b data-version-label></b><small data-status>后台正在重写</small></span></div>
-            <div class="auto-rewrite-reader-pager" aria-label="正文版本翻页"><button type="button" data-prev aria-label="上一版"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button><span data-counter aria-live="polite"></span><button type="button" data-next aria-label="下一版"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button></div>
-            <button type="button" class="auto-rewrite-reader-return" data-return><i class="fa-solid fa-arrow-right" aria-hidden="true"></i><span>返回实时重写</span></button>
-            </div><div class="auto-rewrite-reader-body" data-body></div>`;
+            <span class="auto-rewrite-reader-title" data-version-label></span>
+            <div class="auto-rewrite-reader-controls">
+                <div class="auto-rewrite-reader-pager" role="group" aria-label="正文版本翻页">
+                    <button type="button" data-prev aria-label="上一版"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
+                    <span data-counter aria-live="polite"></span>
+                    <button type="button" data-next aria-label="下一版"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
+                </div>
+                <button type="button" class="auto-rewrite-reader-return" data-return>回到重写</button>
+            </div>
+        </div><div class="auto-rewrite-reader-body" data-body></div>`;
         root.querySelector('[data-prev]').addEventListener('click', () => page(-1));
         root.querySelector('[data-next]').addEventListener('click', () => page(1));
         root.querySelector('[data-return]').addEventListener('click', () => close(true));
@@ -141,13 +149,8 @@ export function createVersionReader(onChange) {
             close(); return;
         }
         mount();
-        const active = view.busy && view.readerId === session.id;
-        const label = active ? view.stopping ? '正在保留重写稿' : '后台正在重写'
-            : message.extra?.[REVISION]?.stopped ? '已停止，重写稿已保留' : '重写已结束';
-        const node = root.querySelector('[data-status]');
-        if (node.textContent !== label) node.textContent = label;
-        const back = root.querySelector('[data-return] span');
-        const text = active ? '返回实时重写' : '查看重写结果';
+        const back = root.querySelector('[data-return]');
+        const text = view.busy ? '回到重写' : '查看重写稿';
         if (back.textContent !== text) back.textContent = text;
     }
 

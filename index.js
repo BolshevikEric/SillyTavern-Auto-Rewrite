@@ -120,25 +120,32 @@ function view() {
         ? liveReply(running) ?? { ...running.attempt, message: running.source, preview: !running.cancelled } : latestReply(ctx);
     const saved = reply?.message.extra?.[REVISION];
     // The native target swipe may be one past the array end until the first
-    // response. Native version switches stay disabled; the reader uses snapshots.
+    // response. The native history picker uses the saved versions.
     return { reply, link: running ? null : versionLink(reply), status, busy: Boolean(running), cancelled: Boolean(running?.cancelled),
         stopping: Boolean(running?.stopRequested), stopped: Boolean(saved?.stopped),
-        readerId: running?.id, networkLabelAtStart: running?.networkLabelAtStart,
+        networkLabelAtStart: running?.networkLabelAtStart,
         receiving: Boolean(running?.generating && !running.generationFinished && !running.stopRequested && !running.cancelled),
-        canBrowse: Boolean(running && chatKey(ctx) === running.key && ctx.chat[running.index] === running.source),
+        canBrowse: Boolean(running && !running.cancelled && chatKey(ctx) === running.key && ctx.chat[running.index] === running.source),
         idle: isIdle(ctx), composerBusy: composerBusy(), timing: running?.timing ?? saved?.timing };
 }
 
-function readerSnapshot() {
-    const job = running, ctx = getContext();
-    if (!job || chatKey(ctx) !== job.key || ctx.chat[job.index] !== job.source) return null;
-    const texts = job.original.swipes?.length ? [...job.original.swipes] : [job.original.mes];
-    texts[job.attempt.swipeId] = job.attempt.text;
-    return { id: job.id, key: job.key, index: job.index, source: job.source, name: job.original.name,
-        sourceSwipe: job.attempt.swipeId,
-        versions: texts.map((text, index) => ({ text: typeof text === 'string' ? text : '',
-            displayText: index === job.attempt.swipeId ? job.original.extra?.display_text
-                : job.original.swipe_info?.[index]?.extra?.display_text })) };
+async function openVersions() {
+    const job = running;
+    if (!job || !sameJob(job) || getContext().chat[job.index] !== job.source) return;
+    try {
+        const { openReadOnlySwipePicker } = await import('../../../swipe-picker.js');
+        if (typeof openReadOnlySwipePicker !== 'function') {
+            globalThis.toastr?.info('当前酒馆版本未提供生成期间的原生版本记录。');
+            return;
+        }
+        if (!sameJob(job) || getContext().chat[job.index] !== job.source) return;
+        const swipes = job.original.swipes?.length ? [...job.original.swipes] : [job.original.mes];
+        swipes[job.attempt.swipeId] = job.attempt.text;
+        await openReadOnlySwipePicker(job.index, { ...job.original, swipes, swipe_id: job.attempt.swipeId }, { depth: 0 });
+    } catch (error) {
+        console.warn('[Auto Rewrite] Opening version history', error);
+        globalThis.toastr?.warning('未能打开原生版本记录。');
+    }
 }
 
 function manualRewrite(attempt) {
@@ -352,7 +359,7 @@ export function enable() {
     scheduler = createBackgroundScheduler(drainQueue);
     globalThis[RUNTIME] = { disable };
     const { eventTypes: events } = getContext();
-    ui = createRewriteUI({ getSettings: settings, getView: view, getReader: readerSnapshot, onRewrite: manualRewrite, onJump: jump,
+    ui = createRewriteUI({ getSettings: settings, getView: view, onVersions: openVersions, onRewrite: manualRewrite, onJump: jump,
         getRouting: () => routing.describe(settings()),
         onRoute: value => { Object.assign(settings(), value); getContext().saveSettingsDebounced(); },
         onRefreshModels: signal => routing.refreshModels({ ...settings() }, signal),

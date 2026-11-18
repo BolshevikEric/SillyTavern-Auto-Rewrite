@@ -1,4 +1,3 @@
-import { createVersionReader } from './version-reader.js';
 import { createFeedbackLibraryUI } from './feedback-library-ui.js';
 
 function duration(ms) {
@@ -238,7 +237,7 @@ function setDropdownButton(btn, items, value) {
     btn.dataset.value = value;
 }
 
-export function createRewriteUI({ getSettings, getView, getReader, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onLibraryChange, onRewrite, onJump, onMutation }) {
+export function createRewriteUI({ getSettings, getView, onVersions, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onLibraryChange, onRewrite, onJump, onMutation }) {
     let settingsLauncher, settingsEntry, bar, dialog, observer, frame, poll, clock, shown;
     let inlineNetworkLabel;
     let disposed = false;
@@ -254,7 +253,6 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
         if (frame) { cancelAnimationFrame(frame); frame = null; }
         if (!document.hidden) refresh();
     };
-    const reader = createVersionReader(refresh);
     const library = createFeedbackLibraryUI({ getSettings, createMenu: createFloatingMenu,
         onChange: () => { onLibraryChange(); refresh(); }, onOpen: () => menu.close() });
     document.addEventListener('visibilitychange', onVisibility);
@@ -559,8 +557,7 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
         </div>`;
         root.querySelector('[data-rewrite]').addEventListener('click', () => onRewrite(shown?.reply));
         root.querySelector('[data-jump]').addEventListener('click', () => {
-            if (reader.isOpen()) reader.close(true);
-            else if (shown?.busy) reader.open(getReader());
+            if (shown?.busy) void onVersions();
             else onJump(shown?.reply, shown?.link?.target);
         });
         root.querySelector('[data-auto]').addEventListener('change', event => { onAuto(event.target.checked); sync(); refresh(); });
@@ -571,7 +568,6 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
         if (disposed) return;
         const view = getView();
         shown = view;
-        reader.sync(view);
         sync();
         for (const root of forms) {
             const node = root.querySelector('[data-status]');
@@ -618,13 +614,11 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
         const captionEl = meta.querySelector('[data-caption]');
         if (captionEl.textContent !== caption) captionEl.textContent = caption;
         const jump = bar.querySelector('[data-jump]');
-        const reading = reader.isOpen();
-        jump.hidden = !reading && (view.busy ? !view.canBrowse : !view.link);
-        jump.disabled = !reading && !view.busy && !view.idle;
-        jump.querySelector('span').textContent = reading ? view.busy ? '回到重写' : '查看重写稿'
-            : view.busy ? '版本' : view.link?.label ?? '查看原稿';
-        jump.querySelector('i').className = `fa-solid ${reading ? 'fa-arrow-right' : view.busy ? 'fa-book-open' : 'fa-clock-rotate-left'}`;
-        jump.title = reading ? '结束阅读，回到重写稿' : view.busy ? '查看原稿和历史版本，重写会继续进行' : '切换正文版本';
+        jump.hidden = view.busy ? !view.canBrowse : !view.link;
+        jump.disabled = !view.busy && !view.idle;
+        jump.querySelector('span').textContent = view.busy ? '版本' : view.link?.label ?? '查看原稿';
+        jump.querySelector('i').className = `fa-solid ${view.busy ? 'fa-book-open' : 'fa-clock-rotate-left'}`;
+        jump.title = view.busy ? '查看历史版本，后台继续重写' : '切换正文版本';
         bar.querySelector('[data-auto]').checked = getSettings().auto;
         const timing = view.timing;
         const time = bar.querySelector('[data-time]');
@@ -678,7 +672,6 @@ export function createRewriteUI({ getSettings, getView, getReader, getRouting, o
     }
     return { install, refresh, sync, openSettings, openLibrary: library.open, dispose() {
         disposed = true;
-        reader.dispose();
         library.dispose();
         document.removeEventListener('visibilitychange', onVisibility);
         observer?.disconnect();

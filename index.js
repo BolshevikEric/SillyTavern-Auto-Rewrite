@@ -271,6 +271,11 @@ async function rewrite(attempt, automatic = true, notice = null) {
     running = job;
     setStatus('正在准备重写');
     try {
+        job.preset = routing.rewritePreset(settings().rewritePreset);
+        if (job.preset) {
+            await job.preset.apply();
+            if (!sameJob(job) || !matches(attempt, getContext()) || composerBusy()) throw new Error('切换重写预设期间聊天已变化');
+        }
         prepareMvu(job);
         const instruction = feedback + (job.mvu ? mvuFeedback : '');
         if (canRewriteInplace()) {
@@ -345,6 +350,8 @@ async function rewrite(attempt, automatic = true, notice = null) {
     } finally {
         clearInplacePrompts(job);
         job.route?.release();
+        try { await job.preset?.restore(); }
+        catch (error) { globalThis.toastr?.warning('恢复首轮预设失败：' + error.message); }
         job.notice?.finish(Boolean(job.completed && !job.cancelled && !job.stopRequested));
         showStaging();
         if (running === job) running = null;
@@ -374,6 +381,7 @@ export function enable() {
     const { eventTypes: events } = getContext();
     ui = createRewriteUI({ getSettings: settings, getView: view, onVersions: openVersions, onRewrite: manualRewrite, onJump: jump,
         getRouting: () => routing.describe(settings()),
+        onMainPreset: name => routing.selectPreset(name).catch(error => globalThis.toastr?.warning(error.message)),
         onRoute: value => { Object.assign(settings(), value); getContext().saveSettingsDebounced(); },
         onRefreshModels: signal => routing.refreshModels({ ...settings() }, signal),
         onMainProfile: id => { routing.setMainProfile(id); ui?.sync(); ui?.refresh(); },
@@ -387,7 +395,14 @@ export function enable() {
         },
         onLibraryChange: () => { getContext().saveSettingsDebounced(); } });
     ui.install();
-    subscribe(events.APP_READY, () => { ui?.install(); void recoverInterrupted(); });
+    subscribe(events.APP_READY, async () => {
+        ui?.install();
+        if (!running) {
+            try { await routing.recoverWritingPreset(); }
+            catch (error) { globalThis.toastr?.warning('恢复首轮预设失败：' + error.message); }
+        }
+        void recoverInterrupted();
+    });
     subscribe(events.SETTINGS_LOADED, () => { ui?.sync(); ui?.refresh(); });
     for (const type of [events.CONNECTION_PROFILE_CREATED, events.CONNECTION_PROFILE_UPDATED,
         events.CONNECTION_PROFILE_DELETED, events.CONNECTION_PROFILE_LOADED,
@@ -489,7 +504,8 @@ export function enable() {
         setStatus(job?.stopRequested ? '已停止接收，正在保存当前重写稿' : running ? '未收到重写正文，正在恢复原稿' : '已停止生成');
     });
     for (const type of [events.CHAT_CHANGED, events.MAIN_API_CHANGED, events.OAI_PRESET_CHANGED_BEFORE,
-        events.CONNECTION_PROFILE_LOADED]) subscribe(type, () => {
+        events.CONNECTION_PROFILE_LOADED]) subscribe(type, data => {
+        if (type === events.OAI_PRESET_CHANGED_BEFORE && routing.isOwnPresetEvent(data)) return;
         clearPending(); cycle = null;
         if (running) { running.cancelled = true; running.timing.finishedAt ??= Date.now(); }
         setStatus('上下文已切换，等待下一次生成');

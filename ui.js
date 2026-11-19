@@ -239,6 +239,9 @@ function setDropdownButton(btn, items, value) {
 
 export function createRewriteUI({ getSettings, getView, onVersions, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onLibraryChange, onRewrite, onJump, onMutation }) {
     let settingsLauncher, settingsEntry, bar, dialog, observer, frame, poll, clock, shown;
+    const toolbarObserver = new ResizeObserver(() => {
+        if (bar?.parentElement) bar.parentElement.style.setProperty('--rewrite-toolbar-height', bar.offsetHeight + 'px');
+    });
     let inlineNetworkLabel;
     let disposed = false;
     const forms = new Set();
@@ -565,16 +568,23 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             const node = root.querySelector('[data-status]');
             if (node.textContent !== view.status) node.textContent = view.status;
         }
-        const composer = document.getElementById('send_form');
-        if (!view.reply || !composer) {
-            if (bar) bar.hidden = true;
+        const host = view.reply && document.querySelector(`#chat > .mes[mesid="${view.reply.index}"]`);
+        if (bar?.parentElement && bar.parentElement !== host) {
+            bar.parentElement.style.removeProperty('--rewrite-toolbar-height');
+            bar.remove();
+        }
+        if (!host) {
+            inlineNetworkLabel?.classList.remove('auto-rewrite-inline-network');
+            inlineNetworkLabel = null;
             clearInterval(clock);
             clock = null;
             return;
         }
-        if (!bar) bar = makeBar();
-        if (bar.parentElement !== composer) composer.prepend(bar);
-        bar.hidden = false;
+        if (!bar) {
+            bar = makeBar();
+            toolbarObserver.observe(bar);
+        }
+        if (bar.parentElement !== host) host.append(bar);
         bar.dataset.busy = String(view.busy);
 
         const button = bar.querySelector('[data-rewrite]');
@@ -589,9 +599,9 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         const transportLabel = view.receiving && view.canBrowse
             ? document.querySelector('#generation_network_status:not([hidden]) > [role="status"]') : null;
         const networkLabel = transportLabel !== view.networkLabelAtStart ? transportLabel : null;
-        if (networkLabel && networkLabel !== inlineNetworkLabel) {
+        if (networkLabel !== inlineNetworkLabel) {
             inlineNetworkLabel?.classList.remove('auto-rewrite-inline-network');
-            networkLabel.classList.add('auto-rewrite-inline-network');
+            networkLabel?.classList.add('auto-rewrite-inline-network');
             inlineNetworkLabel = networkLabel;
         }
         const networkPhase = networkLabel?.textContent;
@@ -667,6 +677,8 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         library.dispose();
         document.removeEventListener('visibilitychange', onVisibility);
         observer?.disconnect();
+        toolbarObserver.disconnect();
+        bar?.parentElement?.style.removeProperty('--rewrite-toolbar-height');
         if (frame) cancelAnimationFrame(frame);
         clearTimeout(poll); clearInterval(clock);
         menu.destroy();

@@ -21,7 +21,7 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
     function summary() {
         const root = el('section', 'auto-rewrite-library-summary');
         root.dataset.feedbackLibrary = '';
-        root.innerHTML = `<div class="auto-rewrite-library-summary-heading"><div><i class="fa-solid fa-book-bookmark" aria-hidden="true"></i><b>修改意见仓库</b><span class="auto-rewrite-library-count" data-count></span></div><button type="button" class="auto-rewrite-library-manage"><i class="fa-solid fa-sliders" aria-hidden="true"></i>打开仓库</button></div>
+        root.innerHTML = `<div class="auto-rewrite-library-summary-heading"><div><i class="fa-solid fa-book-bookmark" aria-hidden="true"></i><b>修改意见库</b><span class="auto-rewrite-library-count" data-count></span></div><button type="button" class="auto-rewrite-library-manage"><i class="fa-solid fa-sliders" aria-hidden="true"></i>管理意见</button></div>
             <div class="auto-rewrite-library-active" data-active></div>
             <details class="auto-rewrite-library-preview"><summary>预览修改意见</summary><p class="auto-rewrite-library-context" data-context></p><pre data-preview></pre></details>`;
         root.querySelector('button').addEventListener('click', () => open());
@@ -51,15 +51,20 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
     }
 
     function select(id) {
-        menu.close(); selected = id; bindingsSignature = null; sync();
+        menu.close(); selected = id; bindingsSignature = null;
+        dialog.dataset.pane = 'editor';
+        sync();
+        if (matchMedia('(max-width: 700px)').matches) dialog.querySelector('[data-back]').focus();
     }
 
     function add() {
         const entry = normalizeEntry({ name: '新修改意见', order: 3, always: true });
         entries().push(entry); selected = entry.id; query = ''; filter = 'all';
         if (dialog) dialog.querySelector('[data-search]').value = '';
+        if (dialog) dialog.dataset.pane = 'editor';
         persist();
-        dialog?.querySelector('[data-name]')?.focus();
+        const name = dialog?.querySelector('[data-name]');
+        name?.focus(); name?.select();
     }
 
     function remove() {
@@ -116,7 +121,7 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
             const data = JSON.parse(await file.text());
             if (data?.type !== 'sillytavern-auto-rewrite-feedback' || data.version !== 1 || !Array.isArray(data.entries)
                 || !data.entries.every(entry => entry && typeof entry.name === 'string' && typeof entry.content === 'string')) {
-                throw new Error('请选择此插件导出的修改意见仓库 JSON 文件。');
+                throw new Error('请选择此插件导出的修改意见库 JSON 文件。');
             }
             if (disposed) return;
             const added = data.entries.map(entry => normalizeEntry({ ...entry, id: entryId() }));
@@ -130,24 +135,30 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
     function open(id) {
         if (disposed) return;
         if (id) { selected = id; query = ''; filter = 'all'; }
-        if (dialog) { if (id) dialog.querySelector('[data-search]').value = ''; sync(); dialog.focus(); return; }
+        if (dialog) { if (id) { dialog.querySelector('[data-search]').value = ''; select(id); } else dialog.focus(); return; }
         onOpen?.();
         selected = entries().some(entry => entry.id === selected) ? selected : sortedEntries(getSettings())[0]?.id;
         listSignature = null; bindingsSignature = null;
         const shell = el('dialog', 'auto-rewrite-dialog auto-rewrite-library-dialog');
-        shell.setAttribute('aria-label', '修改意见仓库');
-        shell.innerHTML = `<header class="auto-rewrite-library-heading"><div><h3>修改意见仓库</h3></div><div class="auto-rewrite-library-heading-actions"><button type="button" data-import title="追加导入条目" aria-label="导入仓库"><i class="fa-solid fa-file-import" aria-hidden="true"></i></button><button type="button" data-export title="导出全部条目" aria-label="导出仓库"><i class="fa-solid fa-file-export" aria-hidden="true"></i></button><button type="button" class="is-primary" data-add><i class="fa-solid fa-plus" aria-hidden="true"></i>新建</button><button type="button" data-close aria-label="关闭仓库"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div></header>
+        shell.setAttribute('aria-label', '修改意见库');
+        shell.innerHTML = `<header class="auto-rewrite-library-heading"><div><h3>修改意见库</h3></div><div class="auto-rewrite-library-heading-actions"><button type="button" data-import title="追加导入条目" aria-label="导入仓库"><i class="fa-solid fa-file-import" aria-hidden="true"></i></button><button type="button" data-export title="导出全部条目" aria-label="导出仓库"><i class="fa-solid fa-file-export" aria-hidden="true"></i></button><button type="button" class="is-primary" data-add><i class="fa-solid fa-plus" aria-hidden="true"></i>新建</button><button type="button" data-close aria-label="关闭仓库"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div></header>
             <div class="auto-rewrite-library-layout"><aside class="auto-rewrite-library-sidebar"><div class="auto-rewrite-library-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input type="search" data-search placeholder="搜索名称或内容" aria-label="搜索修改意见"></div><div class="auto-rewrite-library-filters"><button type="button" data-filter="all">全部条目</button><button type="button" data-filter="active">当前生效</button></div><div class="auto-rewrite-library-list" data-list></div></aside>
-            <main class="auto-rewrite-library-editor-wrap"><div class="auto-rewrite-library-empty" data-empty><i class="fa-solid fa-book-open" aria-hidden="true"></i><b>保存一套可复用的修改意见</b><span>创建条目，再设置常驻或预设、角色绑定。</span><button type="button" data-create-first>新建条目</button></div><div class="auto-rewrite-library-editor" data-editor>
+            <main class="auto-rewrite-library-editor-wrap"><button type="button" data-back><i class="fa-solid fa-chevron-left" aria-hidden="true"></i>意见列表</button><div class="auto-rewrite-library-empty" data-empty><i class="fa-solid fa-book-open" aria-hidden="true"></i><b>保存一套可复用的修改意见</b><span>创建条目，再设置常驻或预设、角色绑定。</span><button type="button" data-create-first>新建条目</button></div><div class="auto-rewrite-library-editor" data-editor>
             <div class="auto-rewrite-library-entry-heading"><input class="text_pole" type="text" data-name placeholder="条目名称" aria-label="条目名称"><label class="auto-rewrite-quick-toggle"><input type="checkbox" data-enabled><span>启用</span></label></div>
             <label class="auto-rewrite-library-content-label">修改意见<textarea class="text_pole" data-content rows="9" placeholder="写下希望这一版如何修改…" spellcheck="false"></textarea></label>
-            <details open class="auto-rewrite-entry-options"><summary class="auto-rewrite-disclosure"><b>条目设置</b><span data-scope-label></span></summary>            <div class="auto-rewrite-library-entry-tools"><label>顺序<input class="text_pole" type="number" min="-9999" max="9999" step="1" data-order aria-label="注入顺序"></label><div><button type="button" data-up title="上移条目" aria-label="上移条目"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button><button type="button" data-down title="下移条目" aria-label="下移条目"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button><button type="button" data-duplicate title="复制条目" aria-label="复制条目"><i class="fa-regular fa-copy" aria-hidden="true"></i></button><button type="button" data-delete title="删除条目，可撤销" aria-label="删除条目"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button></div></div>
+            <details class="auto-rewrite-entry-options"><summary class="auto-rewrite-disclosure"><b>适用范围与排序</b><span data-scope-label></span></summary>            <div class="auto-rewrite-library-entry-tools"><label>顺序<input class="text_pole" type="number" min="-9999" max="9999" step="1" data-order aria-label="注入顺序"></label><div><button type="button" data-up title="上移条目" aria-label="上移条目"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button><button type="button" data-down title="下移条目" aria-label="下移条目"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button><button type="button" data-duplicate title="复制条目" aria-label="复制条目"><i class="fa-regular fa-copy" aria-hidden="true"></i></button><button type="button" data-delete title="删除条目，可撤销" aria-label="删除条目"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button></div></div>
             <div class="auto-rewrite-library-scope" role="group" aria-label="生效范围"><button type="button" data-scope="always"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i>常驻</button><button type="button" data-scope="bound"><i class="fa-solid fa-link" aria-hidden="true"></i>绑定预设 / 角色</button></div>
             <section class="auto-rewrite-library-bindings" data-bindings><p data-context></p><div class="auto-rewrite-library-binding-group"><div><b>预设绑定</b><span><button type="button" data-current-preset>绑定当前预设</button><button type="button" data-add-preset aria-haspopup="listbox" aria-expanded="false" title="选择更多预设" aria-label="添加预设绑定"><i class="fa-solid fa-plus" aria-hidden="true"></i></button></span></div><div class="auto-rewrite-library-binding-chips" data-presets></div></div><div class="auto-rewrite-library-binding-group"><div><b>角色绑定</b><span><button type="button" data-current-character>绑定当前角色</button><button type="button" data-add-character aria-haspopup="listbox" aria-expanded="false" title="选择更多角色" aria-label="添加角色绑定"><i class="fa-solid fa-plus" aria-hidden="true"></i></button></span></div><div class="auto-rewrite-library-binding-chips" data-characters></div></div><div class="auto-rewrite-library-match"><button type="button" data-match="any">任一绑定匹配</button><button type="button" data-match="all">预设与角色同时匹配</button></div><p data-match-help></p></section>
 </details></div></main></div>
             <footer class="auto-rewrite-library-footer"><div class="auto-rewrite-library-undo" data-undo-bar hidden><span data-undo-text></span><button type="button" data-undo>撤销删除</button></div><details class="auto-rewrite-library-preview"><summary><span>当前组合预览</span><small data-composed-count></small></summary><pre data-composed></pre></details></footer><input type="file" data-file accept=".json,application/json" hidden>`;
+        shell.dataset.pane = id ? 'editor' : 'list';
         dialog = shell;
         const button = (selector, handler) => shell.querySelector(selector).addEventListener('click', handler);
+        button('[data-back]', () => {
+            menu.close(true);
+            shell.dataset.pane = 'list';
+            (shell.querySelector('[aria-current="true"]') ?? shell.querySelector('[data-search]')).focus();
+        });
         button('[data-close]', () => shell.close()); button('[data-add]', add); button('[data-create-first]', add);
         button('[data-delete]', remove); button('[data-undo]', undo); button('[data-export]', exportLibrary);
         button('[data-import]', () => shell.querySelector('[data-file]').click());
@@ -194,7 +205,7 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
     function renderList(composition) {
         const ordered = sortedEntries(getSettings());
         const token = JSON.stringify([selected, query, filter, composition.context, ordered.map(entry =>
-            [entry.id, entry.name, entry.order, matchEntry(entry, composition.context), entry.enabled, entry.always, query ? entry.content : ''])]);
+            [entry.id, entry.name, entry.order, matchEntry(entry, composition.context), entry.enabled, entry.always, query ? entry.content : entry.content.slice(0, 90)])]);
         if (token === listSignature) return;
         listSignature = token;
         const list = dialog.querySelector('[data-list]'), oldScroll = list.scrollTop;
@@ -211,7 +222,9 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
             const text = el('span', 'auto-rewrite-library-row-text');
             const title = el('b', '', entry.name || '未命名条目'); title.title = entry.name;
             const status = el('small', state.active ? 'is-active' : '', state.reason);
-            text.append(title, status); pick.append(text); pick.addEventListener('click', () => select(entry.id));
+            text.append(title);
+            if (entry.content.trim()) text.append(el('span', 'auto-rewrite-row-excerpt', entry.content.slice(0, 90).replace(/\s+/g, ' ').trim()));
+            text.append(status); pick.append(text); pick.addEventListener('click', () => select(entry.id));
             const toggle = el('label', 'auto-rewrite-quick-toggle');
             const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.checked = entry.enabled;
             checkbox.setAttribute('aria-label', `启用${entry.name || '条目'}`);

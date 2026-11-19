@@ -133,7 +133,7 @@ function view() {
     return { reply, link: running ? null : versionLink(reply), status, busy: Boolean(running), cancelled: Boolean(running?.cancelled),
         stopping: Boolean(running?.stopRequested), stopped: Boolean(saved?.stopped),
         networkLabelAtStart: running?.networkLabelAtStart,
-        receiving: Boolean(running?.generating && !running.generationFinished && !running.stopRequested && !running.cancelled),
+        receiving: Boolean(running?.generating && !running.generationFinished && !running.replyReceived && !running.stopRequested && !running.cancelled),
         canBrowse: Boolean(running && !running.cancelled && chatKey(ctx) === running.key && ctx.chat[running.index] === running.source),
         idle: !blocker, blocker, composerBusy: composerBusy(), timing: running?.timing ?? saved?.timing };
 }
@@ -411,6 +411,7 @@ export function enable() {
                 const toolContinuation = running.nativeStarted && type === 'normal' && ownsInplace(running)
                     && getContext().chat.slice(running.index + 1).some(m => Array.isArray(m.extra?.tool_invocations));
                 if (rootSwipe || toolContinuation) {
+                    running.replyReceived = false;
                     running.nativeStarted = true;
                     updateInplacePrompts(running, type);
                     return;
@@ -426,6 +427,12 @@ export function enable() {
         ui?.refresh();
     });
     subscribe(events.MESSAGE_RECEIVED, (id, type) => {
+        if (running?.generating && !running.generationFinished && !running.stopRequested
+            && type !== 'quiet' && sameJob(running) && Number(id) === getContext().chat.length - 1
+            && (running.inplace ? ownsInplace(running) : ownsTail(running))) {
+            running.replyReceived = true;
+            setStatus(mvuBusy() ? '正文已收到，正在解析 MVU 变量' : '正文已收到，正在完成酒馆收尾');
+        }
         markStaging(running); ui?.refresh();
         if (running || !settings().auto || !cycle?.eligible || cycle.attempted || type === 'first_message') return;
         const ctx = getContext();

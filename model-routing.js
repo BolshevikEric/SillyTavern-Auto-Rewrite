@@ -239,7 +239,10 @@ export function createModelRouting() {
         }
         const event = ctx.eventTypes.CHAT_COMPLETION_SETTINGS_READY;
         const injectSecret = data => {
-            if (acceptsRequest() && data.chat_completion_source === target.source && target.secretId) data.secret_id = target.secretId;
+            if (!acceptsRequest() || data.chat_completion_source !== target.source) return;
+            if (target.secretId) data.secret_id = target.secretId;
+            // Request-local hint for hosts that support terminal custom SSE chunks.
+            if (target.source === 'custom') data[Symbol.for('st.auto-rewrite.custom-stream')] = true;
         };
         if (event) ctx.eventSource.on(event, injectSecret);
         active = { before };

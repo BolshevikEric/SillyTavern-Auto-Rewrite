@@ -565,15 +565,25 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             const node = root.querySelector('[data-status]');
             if (node.textContent !== view.status) node.textContent = view.status;
         }
+        const mesBlock = view.reply
+            ? document.querySelector(`#chat .mes[mesid="${view.reply.index}"] > .mes_block`)
+            : null;
         const composer = document.getElementById('send_form');
-        if (!view.reply || !composer) {
+        const host = mesBlock ?? composer;
+        if (!view.reply || !host) {
             if (bar) bar.hidden = true;
             clearInterval(clock);
             clock = null;
             return;
         }
         if (!bar) bar = makeBar();
-        if (bar.parentElement !== composer) composer.prepend(bar);
+        if (mesBlock) {
+            if (bar.parentElement !== mesBlock || bar !== mesBlock.lastElementChild) mesBlock.append(bar);
+            bar.dataset.dock = 'message';
+        } else {
+            if (bar.parentElement !== composer) composer.prepend(bar);
+            bar.dataset.dock = 'composer';
+        }
         bar.hidden = false;
         bar.dataset.busy = String(view.busy);
 

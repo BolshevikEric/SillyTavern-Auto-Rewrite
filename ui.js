@@ -565,11 +565,11 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             const node = root.querySelector('[data-status]');
             if (node.textContent !== view.status) node.textContent = view.status;
         }
-        const mesBlock = view.reply
-            ? document.querySelector(`#chat .mes[mesid="${view.reply.index}"] > .mes_block`)
+        const mesEl = view.reply
+            ? document.querySelector(`#chat .mes[mesid="${view.reply.index}"]`)
             : null;
         const composer = document.getElementById('send_form');
-        const host = mesBlock ?? composer;
+        const host = mesEl ?? composer;
         if (!view.reply || !host) {
             if (bar) bar.hidden = true;
             clearInterval(clock);
@@ -577,8 +577,8 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             return;
         }
         if (!bar) bar = makeBar();
-        if (mesBlock) {
-            if (bar.parentElement !== mesBlock || bar !== mesBlock.lastElementChild) mesBlock.append(bar);
+        if (mesEl) {
+            if (bar.parentElement !== mesEl || bar !== mesEl.lastElementChild) mesEl.append(bar);
             bar.dataset.dock = 'message';
         } else {
             if (bar.parentElement !== composer) composer.prepend(bar);

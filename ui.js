@@ -43,7 +43,7 @@ function createFloatingMenu() {
     const position = box => {
         const rect = box.getBoundingClientRect();
         const pad = 12;
-        const width = Math.min(Math.max(rect.width, 300), window.innerWidth - pad * 2);
+        const width = Math.min(Math.max(rect.width, 230), window.innerWidth - pad * 2);
         const left = Math.max(pad, Math.min(rect.left, window.innerWidth - width - pad));
         const below = window.innerHeight - rect.bottom - pad - 6;
         const above = rect.top - pad - 6;
@@ -75,10 +75,8 @@ function createFloatingMenu() {
     };
 
     const pickItem = value => {
-        const anchor = state?.anchor;
         const pick = state?.onPick;
         close();
-        anchor?.focus({ preventScroll: true });
         pick?.(value);
     };
 
@@ -94,7 +92,6 @@ function createFloatingMenu() {
             btn.className = 'auto-rewrite-menu-item';
             btn.setAttribute('role', 'option');
             btn.dataset.value = item.value;
-            btn.title = item.label;
             const active = item.value === state.value;
             btn.setAttribute('aria-selected', String(active));
             if (item.disabled) btn.disabled = true;
@@ -176,7 +173,6 @@ function createFloatingMenu() {
     };
     const handleKeyDown = event => {
         if (!state) return;
-        if (event.isComposing) return;
         if (event.key === 'Escape') {
             event.preventDefault();
             event.stopPropagation();
@@ -195,7 +191,7 @@ function createFloatingMenu() {
             setHighlight(opts[next], true);
             return;
         }
-        if (event.key === 'Enter' && (event.target === state.anchor || menu.contains(event.target))) {
+        if (event.key === 'Enter' && (event.target === searchInput || menu.contains(event.target))) {
             const active = list.querySelector('.auto-rewrite-menu-item.is-active:not(:disabled)');
             if (!active) return;
             event.preventDefault();
@@ -297,11 +293,8 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             <div data-feedback-library-placeholder></div>
             <details open class="auto-rewrite-model-card" aria-label="模型与 API 设置">
                 <summary class="auto-rewrite-disclosure"><b>模型设置</b><span data-route-summary></span></summary>
-                <div class="auto-rewrite-route-switch" role="group" aria-label="配置对象">
-                    <button type="button" data-route-page="rewrite" aria-pressed="true">重写模型</button>
-                    <button type="button" data-route-page="main" aria-pressed="false">全局聊天模型</button>
-                </div>
-                <div class="auto-rewrite-route-group" data-group="main" hidden>
+                <div class="auto-rewrite-route-group" data-group="main">
+                    <div class="auto-rewrite-route-title"><span class="auto-rewrite-role-tag">聊天模型（全局）</span></div>
                     <div class="auto-rewrite-route-fields">
                         <div class="auto-rewrite-label"><span>API 配置</span><button type="button" class="auto-rewrite-select-btn" data-main-profile aria-haspopup="listbox" aria-expanded="false" aria-label="主 API 连接配置"><span class="auto-rewrite-select-text" data-btn-label></span><span class="auto-rewrite-select-tag" data-btn-tag hidden></span><i class="fa-solid fa-chevron-down auto-rewrite-caret" aria-hidden="true"></i></button></div>
                         <div class="auto-rewrite-label"><span>模型型号</span><div class="auto-rewrite-combo"><input type="text" autocomplete="off" spellcheck="false" data-main-model aria-label="主 API 模型型号"><button type="button" class="auto-rewrite-combo-btn auto-rewrite-picker-btn" data-main-picker aria-haspopup="listbox" aria-expanded="false" title="从列表选择主模型" aria-label="展开主模型列表"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button><button type="button" class="auto-rewrite-combo-btn" data-refresh-main title="读取主 API 的模型列表" aria-label="刷新主 API 模型列表"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button></div></div>
@@ -309,6 +302,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
                     <p class="auto-rewrite-model-hint" data-main-hint hidden></p>
                 </div>
                 <div class="auto-rewrite-route-group" data-group="rewrite">
+                    <div class="auto-rewrite-route-title"><span class="auto-rewrite-role-tag is-accent">重写专用</span></div>
                     <div class="auto-rewrite-route-fields">
                         <div class="auto-rewrite-label"><span>API 配置</span><button type="button" class="auto-rewrite-select-btn" data-profile aria-haspopup="listbox" aria-expanded="false" aria-label="重写使用的 API 配置"><span class="auto-rewrite-select-text" data-btn-label></span><span class="auto-rewrite-select-tag" data-btn-tag hidden></span><i class="fa-solid fa-chevron-down auto-rewrite-caret" aria-hidden="true"></i></button></div>
                         <div class="auto-rewrite-label"><span>模型型号</span><div class="auto-rewrite-combo"><input type="text" autocomplete="off" spellcheck="false" data-model aria-label="重写模型型号"><button type="button" class="auto-rewrite-combo-btn auto-rewrite-picker-btn" data-model-picker aria-haspopup="listbox" aria-expanded="false" title="从列表选择重写模型" aria-label="展开重写模型列表"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button><button type="button" class="auto-rewrite-combo-btn" data-refresh-models title="读取重写 API 的模型列表" aria-label="刷新重写模型列表"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button></div></div>
@@ -319,14 +313,6 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             <p class="auto-rewrite-status" data-status role="status"></p>`;
         root.querySelector('[data-auto]').addEventListener('change', event => { onAuto(event.target.checked); sync(); refresh(); });
         root.querySelector('[data-feedback-library-placeholder]').replaceWith(library.summary());
-
-        for (const tab of root.querySelectorAll('[data-route-page]')) {
-            tab.addEventListener('click', () => {
-                menu.close(true);
-                for (const page of root.querySelectorAll('[data-group]')) page.hidden = page.dataset.group !== tab.dataset.routePage;
-                for (const choice of root.querySelectorAll('[data-route-page]')) choice.setAttribute('aria-pressed', String(choice === tab));
-            });
-        }
 
         const openBtnMenu = (btn, onPick, box = btn) => {
             if (btn.disabled) return;
@@ -562,7 +548,6 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         </div>
         <div class="auto-rewrite-buttons">
             <label class="auto-rewrite-quick-toggle" title="生成结束后自动重写一次"><input type="checkbox" role="switch" aria-label="自动重写" data-auto><span>自动重写</span></label>
-            <button type="button" class="auto-rewrite-icon-button" data-library title="修改意见库" aria-label="打开修改意见库"><i class="fa-solid fa-book-open" aria-hidden="true"></i></button>
             <button type="button" class="auto-rewrite-icon-button" data-settings title="重写设置" aria-label="重写设置" aria-haspopup="dialog"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
         </div>`;
         root.querySelector('[data-rewrite]').addEventListener('click', () => onRewrite(shown?.reply));
@@ -571,7 +556,6 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             else onJump(shown?.reply, shown?.link?.target);
         });
         root.querySelector('[data-auto]').addEventListener('change', event => { onAuto(event.target.checked); sync(); refresh(); });
-        root.querySelector('[data-library]').addEventListener('click', () => library.open());
         root.querySelector('[data-settings]').addEventListener('click', openSettings);
         return root;
     };

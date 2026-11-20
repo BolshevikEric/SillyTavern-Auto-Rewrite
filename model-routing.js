@@ -34,68 +34,6 @@ function catalogKey(target) {
 
 export function createModelRouting() {
     let active;
-    let expectedPreset;
-    const interruptedKey = 'auto-rewrite.interrupted-writing-preset';
-    const presetManager = () => getPresetManager('openai');
-
-    async function selectPreset(name) {
-        const manager = presetManager();
-        if (manager?.getSelectedPresetName() === name) return;
-        const value = manager?.findPreset(name);
-        if (value == null) throw new Error('找不到预设：' + name);
-        await manager.selectPreset(value);
-    }
-
-    // Use the native preset lifecycle so the prompt manager and preset extensions
-    // see the switch. Only patch the working copy supplied by the before event.
-    async function switchWritingPreset(name, fields) {
-        expectedPreset = name;
-        const ctx = getContext();
-        const event = ctx.eventTypes.OAI_PRESET_CHANGED_BEFORE;
-        const patch = data => {
-            if (data.presetName === name) Object.assign(data.preset, fields);
-        };
-        ctx.eventSource.on(event, patch);
-        try { await selectPreset(name); }
-        finally {
-            ctx.eventSource.removeListener(event, patch);
-            expectedPreset = null;
-        }
-    }
-
-    function rewritePreset(name) {
-        const manager = presetManager();
-        const original = manager?.getSelectedPresetName();
-        if (!name || name === original) return null;
-        if (getContext().mainApi !== 'openai' || !original) throw new Error('独立重写预设需要聊天补全 API');
-        const live = getContext().chatCompletionSettings;
-        const saved = {}, connection = {};
-        for (const [key, [, field, , isConnection]] of Object.entries(settingsToUpdate)) {
-            saved[key] = structuredClone(live[field]);
-            if (isConnection && CONNECTION_FIELDS.has(field)) connection[key] = saved[key];
-        }
-        return {
-            async apply() {
-                sessionStorage.setItem(interruptedKey, JSON.stringify({ original, name }));
-                await switchWritingPreset(name, connection);
-            },
-            async restore() {
-                if (manager.getSelectedPresetName() === name) await switchWritingPreset(original, saved);
-                sessionStorage.removeItem(interruptedKey);
-            },
-        };
-    }
-
-    async function recoverWritingPreset() {
-        const receipt = sessionStorage.getItem(interruptedKey);
-        if (!receipt || expectedPreset || getContext().mainApi !== 'openai') return;
-        const manager = presetManager();
-        if (!manager?.getSelectedPresetName()) return;
-        const { original, name } = JSON.parse(receipt);
-        if (manager.getSelectedPresetName() === name) await selectPreset(original);
-        sessionStorage.removeItem(interruptedKey);
-    }
-
     const catalogs = new Map();
     const profiles = () => getContext().extensionSettings.connectionManager?.profiles ?? [];
     const baseline = () => active?.before ?? getContext().chatCompletionSettings;
@@ -194,9 +132,6 @@ export function createModelRouting() {
             .map(p => ({ id: p.id, name: p.name || p.api, api: p.api }))
             .sort((a, b) => a.name.localeCompare(b.name));
         const ctx = getContext();
-        const manager = ctx.mainApi === 'openai' ? presetManager() : null;
-        const presets = manager?.getAllPresets() ?? [];
-        const mainPreset = manager?.getSelectedPresetName() ?? '';
         const base = baseline();
         const mainProfileId = ctx.extensionSettings.connectionManager?.selectedProfile || '';
         const mainSource = ctx.mainApi === 'openai' ? (base?.chat_completion_source || '') : (ctx.mainApi || '');
@@ -214,7 +149,7 @@ export function createModelRouting() {
         }
         try {
             const target = targetFor(selection);
-            return { presets, mainPreset, profiles: available, models: suggestions(target), source: target.source,
+            return { profiles: available, models: suggestions(target), source: target.source,
                 label: target.label, model: target.model,
                 mainProfiles, mainProfileId, mainSource, mainModel, mainModels,
                 mainCanProfile, mainCanModel, mainCanFetch, mainCatalogLoaded,
@@ -222,7 +157,7 @@ export function createModelRouting() {
                 catalogLoaded: catalogs.has(catalogKey(target)),
                 canFetch: CATALOG_SOURCES.has(target.source), error: '' };
         } catch (error) {
-            return { presets, mainPreset, profiles: available, models: [], error: error.message, supported: false,
+            return { profiles: available, models: [], error: error.message, supported: false,
                 label: '', model: '',
                 mainProfiles, mainProfileId, mainSource, mainModel, mainModels,
                 mainCanProfile, mainCanModel, mainCanFetch, mainCatalogLoaded };
@@ -328,6 +263,5 @@ export function createModelRouting() {
         } };
     }
 
-    return { describe, refreshModels, acquire, setMainProfile, setMainModel, selectPreset, rewritePreset, recoverWritingPreset,
-        isOwnPresetEvent: data => Boolean(expectedPreset && data?.presetName === expectedPreset) };
+    return { describe, refreshModels, acquire, setMainProfile, setMainModel };
 }

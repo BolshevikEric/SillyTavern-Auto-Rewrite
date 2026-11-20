@@ -237,7 +237,7 @@ function setDropdownButton(btn, items, value) {
     btn.dataset.value = value;
 }
 
-export function createRewriteUI({ getSettings, getView, onVersions, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onMainPreset, onRefreshMainModels, onAuto, onLibraryChange, onRewrite, onJump, onMutation }) {
+export function createRewriteUI({ getSettings, getView, onVersions, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onLibraryChange, onRewrite, onJump, onMutation }) {
     let settingsLauncher, settingsEntry, bar, dialog, observer, frame, poll, clock, shown;
     const toolbarObserver = new ResizeObserver(() => {
         if (!bar?.parentElement) return;
@@ -306,7 +306,6 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
                         <div class="auto-rewrite-label"><span>API 配置</span><button type="button" class="auto-rewrite-select-btn" data-main-profile aria-haspopup="listbox" aria-expanded="false" aria-label="主 API 连接配置"><span class="auto-rewrite-select-text" data-btn-label></span><span class="auto-rewrite-select-tag" data-btn-tag hidden></span><i class="fa-solid fa-chevron-down auto-rewrite-caret" aria-hidden="true"></i></button></div>
                         <div class="auto-rewrite-label"><span>模型型号</span><div class="auto-rewrite-combo"><input type="text" autocomplete="off" spellcheck="false" data-main-model aria-label="主 API 模型型号"><button type="button" class="auto-rewrite-combo-btn auto-rewrite-picker-btn" data-main-picker aria-haspopup="listbox" aria-expanded="false" title="从列表选择主模型" aria-label="展开主模型列表"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button><button type="button" class="auto-rewrite-combo-btn" data-refresh-main title="读取主 API 的模型列表" aria-label="刷新主 API 模型列表"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button></div></div>
                     </div>
-                    <div class="auto-rewrite-label"><span>首轮预设</span><button type="button" class="auto-rewrite-select-btn" data-main-preset aria-haspopup="listbox" aria-expanded="false" aria-label="首轮预设"><span data-btn-label class="auto-rewrite-select-text"></span><span data-btn-tag hidden></span><i class="fa-solid fa-chevron-down auto-rewrite-caret" aria-hidden="true"></i></button></div>
                     <p class="auto-rewrite-model-hint" data-main-hint hidden></p>
                 </div>
                 <div class="auto-rewrite-route-group" data-group="rewrite">
@@ -315,7 +314,6 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
                         <div class="auto-rewrite-label"><span>API 配置</span><button type="button" class="auto-rewrite-select-btn" data-profile aria-haspopup="listbox" aria-expanded="false" aria-label="重写使用的 API 配置"><span class="auto-rewrite-select-text" data-btn-label></span><span class="auto-rewrite-select-tag" data-btn-tag hidden></span><i class="fa-solid fa-chevron-down auto-rewrite-caret" aria-hidden="true"></i></button></div>
                         <div class="auto-rewrite-label"><span>模型型号</span><div class="auto-rewrite-combo"><input type="text" autocomplete="off" spellcheck="false" data-model aria-label="重写模型型号"><button type="button" class="auto-rewrite-combo-btn auto-rewrite-picker-btn" data-model-picker aria-haspopup="listbox" aria-expanded="false" title="从列表选择重写模型" aria-label="展开重写模型列表"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button><button type="button" class="auto-rewrite-combo-btn" data-refresh-models title="读取重写 API 的模型列表" aria-label="刷新重写模型列表"><i class="fa-solid fa-rotate" aria-hidden="true"></i></button></div></div>
                     </div>
-                    <div class="auto-rewrite-label"><span>重写预设</span><button type="button" class="auto-rewrite-select-btn" data-rewrite-preset aria-haspopup="listbox" aria-expanded="false" aria-label="重写预设"><span data-btn-label class="auto-rewrite-select-text"></span><span data-btn-tag hidden></span><i class="fa-solid fa-chevron-down auto-rewrite-caret" aria-hidden="true"></i></button></div>
                     <p class="auto-rewrite-model-hint" data-model-hint></p>
                 </div>
                 </details>
@@ -328,13 +326,6 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             const items = JSON.parse(btn.dataset.items || '[]');
             menu.open({ anchor: btn, box, items, value: btn.dataset.value || '', onPick });
         };
-
-        const mainPreset = root.querySelector('[data-main-preset]');
-        const rewritePreset = root.querySelector('[data-rewrite-preset]');
-        mainPreset.addEventListener('click', () => openBtnMenu(mainPreset, onMainPreset));
-        rewritePreset.addEventListener('click', () => openBtnMenu(rewritePreset, rewritePreset => {
-            onRoute({ rewritePreset }); sync();
-        }));
 
         const mainProfileBtn = root.querySelector('[data-main-profile]');
         mainProfileBtn.addEventListener('click', () => openBtnMenu(mainProfileBtn, id => {
@@ -420,17 +411,6 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         for (const root of forms) {
             const seq = root.dataset.formId;
             root.querySelector('[data-auto]').checked = settings.auto;
-
-            const presetItems = route.presets.map(name => ({ label: name, value: name }));
-            const mainPreset = root.querySelector('[data-main-preset]');
-            const rewritePreset = root.querySelector('[data-rewrite-preset]');
-            const choices = [{ value: '', label: '沿用首轮预设' }, ...presetItems];
-            if (settings.rewritePreset && !route.presets.includes(settings.rewritePreset)) {
-                choices.push({ value: settings.rewritePreset, label: settings.rewritePreset + '（已删除）', disabled: true });
-            }
-            setDropdownButton(mainPreset, presetItems, route.mainPreset);
-            setDropdownButton(rewritePreset, choices, settings.rewritePreset || '');
-            mainPreset.disabled = rewritePreset.disabled = busy || !presetItems.length;
 
             // Main API group
             const mainProfileBtn = root.querySelector('[data-main-profile]');

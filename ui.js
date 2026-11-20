@@ -240,7 +240,14 @@ function setDropdownButton(btn, items, value) {
 export function createRewriteUI({ getSettings, getView, onVersions, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onMainPreset, onRefreshMainModels, onAuto, onLibraryChange, onRewrite, onJump, onMutation }) {
     let settingsLauncher, settingsEntry, bar, dialog, observer, frame, poll, clock, shown;
     const toolbarObserver = new ResizeObserver(() => {
-        if (bar?.parentElement) bar.parentElement.style.setProperty('--rewrite-toolbar-height', bar.offsetHeight + 'px');
+        if (!bar?.parentElement) return;
+        const row = bar.firstElementChild;
+        const style = getComputedStyle(bar);
+        const available = bar.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        if (available > 0 && row.offsetWidth > 0) {
+            row.style.setProperty('--rewrite-row-scale', Math.min(1, available / row.offsetWidth));
+        }
+        bar.parentElement.style.setProperty('--rewrite-toolbar-height', bar.offsetHeight + 'px');
     });
     let inlineNetworkLabel;
     let disposed = false;
@@ -558,7 +565,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         root.className = 'auto-rewrite-actions';
         root.setAttribute('role', 'group');
         root.setAttribute('aria-label', '正文重写');
-        root.innerHTML = `<div class="auto-rewrite-main">
+        root.innerHTML = `<div class="auto-rewrite-row"><div class="auto-rewrite-main">
             <button type="button" class="auto-rewrite-primary" data-rewrite><i class="fa-solid fa-pen-nib" aria-hidden="true"></i><span>重写正文</span></button>
             <div class="auto-rewrite-meta" hidden>
                 <i class="fa-solid fa-circle-notch auto-rewrite-indicator" aria-hidden="true" hidden></i>
@@ -569,7 +576,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         <div class="auto-rewrite-buttons">
             <label class="auto-rewrite-quick-toggle" title="生成结束后自动重写一次"><input type="checkbox" role="switch" aria-label="自动重写" data-auto><span>自动重写</span></label>
             <button type="button" class="auto-rewrite-icon-button" data-settings title="重写设置" aria-label="重写设置" aria-haspopup="dialog"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
-        </div>`;
+        </div></div>`;
         root.querySelector('[data-rewrite]').addEventListener('click', () => onRewrite(shown?.reply));
         root.querySelector('[data-jump]').addEventListener('click', () => {
             if (shown?.busy) void onVersions();
@@ -603,6 +610,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         if (!bar) {
             bar = makeBar();
             toolbarObserver.observe(bar);
+            toolbarObserver.observe(bar.firstElementChild);
         }
         if (bar.parentElement !== host) host.append(bar);
         bar.dataset.busy = String(view.busy);

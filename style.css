@@ -37,7 +37,6 @@
 #chat > .mes:has(> .auto-rewrite-actions) {
     padding-bottom: calc(var(--rewrite-toolbar-height, 34px) + 20px) !important;
 }
-#form_sheld > .auto-rewrite-actions,
 #chat > .mes > .auto-rewrite-actions {
     position: absolute;
     bottom: 10px;
@@ -60,13 +59,6 @@
     box-shadow: inset 0 1px 0 #ffffff0d;
     line-height: 1.3;
     z-index: 2;
-}
-#form_sheld > .auto-rewrite-actions {
-    position: relative;
-    inset: auto;
-    flex: none;
-    margin: 2px auto 4px;
-    max-width: calc(100% - 12px);
 }
 .auto-rewrite-row {
     display: flex;

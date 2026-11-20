@@ -247,7 +247,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         if (available > 0 && row.offsetWidth > 0) {
             row.style.setProperty('--rewrite-row-scale', Math.min(1, available / row.offsetWidth));
         }
-        if (bar.parentElement.matches('.mes')) bar.parentElement.style.setProperty('--rewrite-toolbar-height', bar.offsetHeight + 'px');
+        bar.parentElement.style.setProperty('--rewrite-toolbar-height', bar.offsetHeight + 'px');
     });
     let inlineNetworkLabel;
     let disposed = false;
@@ -575,12 +575,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             const node = root.querySelector('[data-status]');
             if (node.textContent !== view.status) node.textContent = view.status;
         }
-        const message = view.reply && document.querySelector(`#chat > .mes[mesid="${view.reply.index}"]`);
-        // A streaming swipe can replace or clip its message footer. Dock the same
-        // controls in normal flow above the composer until the rewrite settles.
-        const composer = document.getElementById('send_form');
-        const docked = Boolean(view.busy && view.reply && composer?.parentElement?.id === 'form_sheld');
-        const host = docked ? composer.parentElement : message;
+        const host = view.reply && document.querySelector(`#chat > .mes[mesid="${view.reply.index}"]`);
         if (bar?.parentElement && bar.parentElement !== host) {
             bar.parentElement.style.removeProperty('--rewrite-toolbar-height');
             bar.remove();
@@ -597,11 +592,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             toolbarObserver.observe(bar);
             toolbarObserver.observe(bar.firstElementChild);
         }
-        if (bar.parentElement !== host) {
-            if (docked) composer.before(bar);
-            else host.append(bar);
-            if (!docked) host.style.setProperty('--rewrite-toolbar-height', bar.offsetHeight + 'px');
-        }
+        if (bar.parentElement !== host) host.append(bar);
         bar.dataset.busy = String(view.busy);
 
         const button = bar.querySelector('[data-rewrite]');

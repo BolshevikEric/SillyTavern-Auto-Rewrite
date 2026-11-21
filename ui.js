@@ -240,14 +240,13 @@ function setDropdownButton(btn, items, value) {
 export function createRewriteUI({ getSettings, getView, onVersions, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onQuickChange, onLibraryChange, onRewrite, onJump, onMutation }) {
     let settingsLauncher, settingsEntry, bar, dialog, observer, frame, poll, clock, shown;
     const toolbarObserver = new ResizeObserver(() => {
-        if (!bar?.parentElement) return;
+        if (!bar?.isConnected || bar.hidden) return;
         const row = bar.firstElementChild;
         const style = getComputedStyle(bar);
         const available = bar.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
         if (available > 0 && row.offsetWidth > 0) {
             row.style.setProperty('--rewrite-row-scale', Math.min(1, available / row.offsetWidth));
         }
-        bar.parentElement.style.setProperty('--rewrite-toolbar-height', bar.offsetHeight + 'px');
     });
     let inlineNetworkLabel;
     let disposed = false;
@@ -566,7 +565,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         const quickInput = root.querySelector('[data-quick-input]');
         const resizeQuickInput = () => {
             quickInput.style.height = 'auto';
-            quickInput.style.height = `${Math.min(quickInput.scrollHeight, 92)}px`;
+            quickInput.style.height = `${Math.min(quickInput.scrollHeight, 110)}px`;
         };
         root.querySelector('[data-rewrite]').addEventListener('click', () => onRewrite(shown?.reply));
         root.querySelector('[data-quick-toggle]').addEventListener('click', () => {
@@ -611,12 +610,9 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             const node = root.querySelector('[data-status]');
             if (node.textContent !== view.status) node.textContent = view.status;
         }
-        const host = view.reply && document.querySelector(`#chat > .mes[mesid="${view.reply.index}"]`);
-        if (bar?.parentElement && bar.parentElement !== host) {
-            bar.parentElement.style.removeProperty('--rewrite-toolbar-height');
-            bar.remove();
-        }
-        if (!host) {
+        const composer = document.getElementById('send_form');
+        if (!view.reply || !composer) {
+            if (bar) bar.hidden = true;
             inlineNetworkLabel?.classList.remove('auto-rewrite-inline-network');
             inlineNetworkLabel = null;
             clearInterval(clock);
@@ -628,7 +624,8 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             toolbarObserver.observe(bar);
             toolbarObserver.observe(bar.firstElementChild);
         }
-        if (bar.parentElement !== host) host.append(bar);
+        if (bar.parentElement !== composer) composer.prepend(bar);
+        bar.hidden = false;
         bar.dataset.busy = String(view.busy);
 
         const button = bar.querySelector('[data-rewrite]');
@@ -681,7 +678,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         if (quickInput.value !== quick.text) {
             quickInput.value = quick.text;
             quickInput.style.height = 'auto';
-            quickInput.style.height = `${Math.min(quickInput.scrollHeight, 92)}px`;
+            quickInput.style.height = `${Math.min(quickInput.scrollHeight, 110)}px`;
         }
         quickInput.disabled = view.busy;
         const quickModeBtn = bar.querySelector('[data-quick-mode]');
@@ -754,7 +751,6 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         document.removeEventListener('visibilitychange', onVisibility);
         observer?.disconnect();
         toolbarObserver.disconnect();
-        bar?.parentElement?.style.removeProperty('--rewrite-toolbar-height');
         if (frame) cancelAnimationFrame(frame);
         clearTimeout(poll); clearInterval(clock);
         menu.destroy();

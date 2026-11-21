@@ -237,7 +237,7 @@ function setDropdownButton(btn, items, value) {
     btn.dataset.value = value;
 }
 
-export function createRewriteUI({ getSettings, getView, onVersions, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onLibraryChange, onRewrite, onJump, onMutation }) {
+export function createRewriteUI({ getSettings, getView, onVersions, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onQuickChange, onLibraryChange, onRewrite, onJump, onMutation }) {
     let settingsLauncher, settingsEntry, bar, dialog, observer, frame, poll, clock, shown;
     const toolbarObserver = new ResizeObserver(() => {
         if (!bar?.parentElement) return;
@@ -547,6 +547,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         root.setAttribute('aria-label', '正文重写');
         root.innerHTML = `<div class="auto-rewrite-row"><div class="auto-rewrite-main">
             <button type="button" class="auto-rewrite-primary" data-rewrite><i class="fa-solid fa-pen-nib" aria-hidden="true"></i><span>重写正文</span></button>
+            <button type="button" class="auto-rewrite-quick-trigger" data-quick-toggle aria-expanded="false" title="展开或收起本轮即时修改意见"><i class="fa-solid fa-comment-dots" aria-hidden="true"></i><span>即时意见</span><span class="auto-rewrite-quick-dot" data-quick-dot hidden></span></button>
             <div class="auto-rewrite-meta" hidden>
                 <i class="fa-solid fa-circle-notch auto-rewrite-indicator" aria-hidden="true" hidden></i>
                 <span data-caption role="status"></span><span class="auto-rewrite-time" data-time></span>
@@ -556,8 +557,43 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         <div class="auto-rewrite-buttons">
             <label class="auto-rewrite-quick-toggle" title="生成结束后自动重写一次"><input type="checkbox" role="switch" aria-label="自动重写" data-auto><span>自动重写</span></label>
             <button type="button" class="auto-rewrite-icon-button" data-settings title="重写设置" aria-label="重写设置" aria-haspopup="dialog"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>
-        </div></div>`;
+        </div></div>
+        <div class="auto-rewrite-quick-box" data-quick-box hidden>
+            <textarea class="auto-rewrite-quick-input" rows="1" placeholder="输入即时修改意见…（Ctrl+Enter 立即重写）" aria-label="即时修改意见" data-quick-input></textarea>
+            <button type="button" class="auto-rewrite-quick-mode" data-quick-mode data-mode="append" title="点击切换：追加到常驻意见末尾 / 仅使用本条即时意见">追加</button>
+            <button type="button" class="auto-rewrite-primary auto-rewrite-quick-run" data-quick-run title="按当前即时修改意见立即重写"><i class="fa-solid fa-play" aria-hidden="true"></i><span>立即重写</span></button>
+        </div>`;
+        const quickInput = root.querySelector('[data-quick-input]');
+        const resizeQuickInput = () => {
+            quickInput.style.height = 'auto';
+            quickInput.style.height = `${Math.min(quickInput.scrollHeight, 92)}px`;
+        };
         root.querySelector('[data-rewrite]').addEventListener('click', () => onRewrite(shown?.reply));
+        root.querySelector('[data-quick-toggle]').addEventListener('click', () => {
+            const nextOpen = !shown?.quick?.open;
+            onQuickChange?.({ open: nextOpen });
+            if (nextOpen) requestAnimationFrame(() => { resizeQuickInput(); quickInput.focus(); });
+        });
+        quickInput.addEventListener('input', () => {
+            resizeQuickInput();
+            onQuickChange?.({ text: quickInput.value });
+        });
+        quickInput.addEventListener('keydown', event => {
+            event.stopPropagation();
+            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                event.preventDefault();
+                const runBtn = root.querySelector('[data-quick-run]');
+                if (!runBtn.disabled) onRewrite(shown?.reply);
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                onQuickChange?.({ open: false });
+            }
+        });
+        root.querySelector('[data-quick-mode]').addEventListener('click', () => {
+            const nextMode = shown?.quick?.mode === 'replace' ? 'append' : 'replace';
+            onQuickChange?.({ mode: nextMode });
+        });
+        root.querySelector('[data-quick-run]').addEventListener('click', () => onRewrite(shown?.reply));
         root.querySelector('[data-jump]').addEventListener('click', () => {
             if (shown?.busy) void onVersions();
             else onJump(shown?.reply, shown?.link?.target);
@@ -630,6 +666,38 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         jump.querySelector('i').className = `fa-solid ${view.busy ? 'fa-book-open' : 'fa-clock-rotate-left'}`;
         jump.title = view.busy ? '查看历史版本，后台继续重写' : '切换正文版本';
         bar.querySelector('[data-auto]').checked = getSettings().auto;
+        const quick = view.quick ?? { text: '', mode: 'append', open: false };
+        const quickOpen = Boolean(quick.open) && !view.busy;
+        const hasQuickText = Boolean(quick.text.trim());
+        bar.dataset.quickOpen = String(quickOpen);
+        const quickToggle = bar.querySelector('[data-quick-toggle]');
+        quickToggle.hidden = view.busy;
+        quickToggle.setAttribute('aria-expanded', String(quickOpen));
+        quickToggle.classList.toggle('is-active', quickOpen || hasQuickText);
+        bar.querySelector('[data-quick-dot]').hidden = !hasQuickText;
+        const quickBox = bar.querySelector('[data-quick-box]');
+        quickBox.hidden = !quickOpen;
+        const quickInput = bar.querySelector('[data-quick-input]');
+        if (quickInput.value !== quick.text) {
+            quickInput.value = quick.text;
+            quickInput.style.height = 'auto';
+            quickInput.style.height = `${Math.min(quickInput.scrollHeight, 92)}px`;
+        }
+        quickInput.disabled = view.busy;
+        const quickModeBtn = bar.querySelector('[data-quick-mode]');
+        const isReplace = quick.mode === 'replace';
+        quickModeBtn.dataset.mode = isReplace ? 'replace' : 'append';
+        quickModeBtn.textContent = isReplace ? '仅用' : '追加';
+        quickModeBtn.title = isReplace
+            ? '当前：仅用（只发送这条即时意见，跳过常驻意见库）。点击切换为「追加」'
+            : '当前：追加（保留常驻意见，并把这条即时意见以最高优先级附在末尾）。点击切换为「仅用」';
+        quickModeBtn.disabled = view.busy;
+        const quickRunBtn = bar.querySelector('[data-quick-run]');
+        const needText = isReplace && !hasQuickText;
+        quickRunBtn.disabled = view.busy || !view.idle || view.composerBusy || needText;
+        quickRunBtn.title = needText
+            ? '「仅用」模式下请先输入即时修改意见'
+            : (view.blocker || (view.composerBusy ? '请先发送或清空输入框中的草稿与附件' : '按当前即时修改意见立即重写（Ctrl+Enter）'));
         const timing = view.timing;
         const time = bar.querySelector('[data-time]');
         const elapsed = timing ? duration((timing.finishedAt ?? Date.now()) - timing.rewriteStartedAt) : '';

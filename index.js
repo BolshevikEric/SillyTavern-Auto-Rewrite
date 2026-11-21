@@ -53,6 +53,24 @@ let sequence = 0;
 let mvuReadyAt = 0;
 let status = '等待下一次生成';
 const subscriptions = [];
+const quickDrafts = new Map();
+
+function getQuickDraft(key = chatKey()) {
+    let draft = quickDrafts.get(key);
+    if (!draft) {
+        draft = { text: '', mode: 'append', open: false };
+        quickDrafts.set(key, draft);
+    }
+    return draft;
+}
+
+function updateQuickDraft(patch = {}) {
+    const draft = getQuickDraft();
+    if (typeof patch.text === 'string') draft.text = patch.text;
+    if (patch.mode === 'append' || patch.mode === 'replace') draft.mode = patch.mode;
+    if (typeof patch.open === 'boolean') draft.open = patch.open;
+    ui?.refresh();
+}
 const routing = createModelRouting();
 
 function settings() {
@@ -135,7 +153,8 @@ function view() {
         networkLabelAtStart: running?.networkLabelAtStart,
         receiving: Boolean(running?.generating && !running.generationFinished && !running.replyReceived && !running.stopRequested && !running.cancelled),
         canBrowse: Boolean(running && !running.cancelled && chatKey(ctx) === running.key && ctx.chat[running.index] === running.source),
-        idle: !blocker, blocker, composerBusy: composerBusy(), timing: running?.timing ?? saved?.timing };
+        idle: !blocker, blocker, composerBusy: composerBusy(), timing: running?.timing ?? saved?.timing,
+        quick: { ...getQuickDraft(reply?.key ?? chatKey(ctx)) } };
 }
 
 async function openVersions() {
@@ -257,16 +276,26 @@ function appendFeedback(ctx, text, job) {
 async function rewrite(attempt, automatic = true, notice = null) {
     if (running) { notice?.finish(false); return; }
     const ctx = getContext();
-    const composition = composedFeedback(settings());
-    const feedback = composition.text;
-    if (!feedback) { notice?.finish(false); setStatus('当前没有生效的修改意见，请启用条目或设置绑定'); ui?.openLibrary(); return; }
+    const quick = getQuickDraft(attempt.key);
+    const quickText = quick.text.trim();
+    const quickMode = quick.mode === 'replace' ? 'replace' : 'append';
+    const baseFeedback = composedFeedback(settings()).text;
+    const feedback = quickText
+        ? (quickMode === 'replace' || !baseFeedback
+            ? quickText
+            : `${baseFeedback}
+
+【本轮即时修改意见（最高优先级）】
+${quickText}`)
+        : baseFeedback;
+    if (!feedback) { notice?.finish(false); setStatus('当前没有生效的修改意见，请启用条目或填写即时意见'); ui?.openLibrary(); return; }
     if (!matches(attempt, ctx) || !isIdle(ctx) || composerBusy()) { notice?.finish(false); return; }
     const now = Date.now();
     const firstStarted = Date.parse(attempt.message.gen_started);
     const job = { id: `rewrite-${now.toString(36)}-${Math.random().toString(36).slice(2)}`,
         key: attempt.key, index: attempt.index, attempt, source: attempt.message,
         original: structuredClone(attempt.message), prefix: ctx.chat.slice(0, attempt.index),
-        cancelled: false, generating: false, automatic, notice: notice ?? beginNotice(),
+        cancelled: false, generating: false, automatic, notice: notice ?? beginNotice(), quickUsedText: quickText,
         timing: { startedAt: automatic && Number.isFinite(firstStarted) ? Math.min(firstStarted, now) : now, rewriteStartedAt: now } };
     running = job;
     setStatus('正在准备重写');
@@ -322,6 +351,13 @@ async function rewrite(attempt, automatic = true, notice = null) {
         if (job.inplace) await commitInplace(job, last);
         else await collapse(job, last);
         job.completed = true;
+        if (!job.stopRequested && !job.cancelled && job.quickUsedText) {
+            const currentQuick = getQuickDraft(job.key);
+            if (currentQuick.text.trim() === job.quickUsedText) {
+                currentQuick.text = '';
+                currentQuick.open = false;
+            }
+        }
         setStatus(job.stopRequested ? '已停止，当前重写稿已保留，原稿仍在上一版' : '重写已完成，原稿已保存为上一版');
         if (job.mvuPending) globalThis.toastr?.info('重写稿已保留；变量尚未解析完成，暂沿用本轮初始状态，请在正文完整后重新解析变量。');
     } catch (error) {
@@ -385,6 +421,7 @@ export function enable() {
             if (!value) clearPending();
             if (!running) setStatus(value ? '等待下一次生成' : '自动重写已关闭');
         },
+        onQuickChange: updateQuickDraft,
         onLibraryChange: () => { getContext().saveSettingsDebounced(); } });
     ui.install();
     subscribe(events.APP_READY, () => { ui?.install(); void recoverInterrupted(); });

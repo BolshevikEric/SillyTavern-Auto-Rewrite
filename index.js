@@ -182,13 +182,44 @@ async function openVersions() {
     }
 }
 
-function manualRewrite(attempt) {
-    if (!attempt || running) return;
+let manualWaitId = 0;
+
+async function manualRewrite(attempt) {
+    if (running) return;
     const ctx = getContext();
-    // The same saved version can acquire new text before the next render.
-    // Keep the chat, message and swipe guards, then read the current text.
-    const reply = latestReply(ctx);
-    if (!reply || !matches(attempt, ctx, false) || !isIdle(ctx) || composerBusy()) {
+    let reply = latestReply(ctx);
+    if (!reply) {
+        ui?.refresh();
+        return;
+    }
+    if (attempt && (attempt.key !== reply.key || attempt.index !== reply.index)) {
+        ui?.refresh();
+        return;
+    }
+    if (composerBusy()) {
+        globalThis.toastr?.info('请先发送或清空输入框中的草稿与附件。');
+        ui?.refresh();
+        return;
+    }
+    const waitId = ++manualWaitId;
+    const transient = new Set(['正在保存聊天', '正在完成回复收尾', '正在切换回复版本']);
+    const deadline = Date.now() + 2500;
+    let blocker = rewriteBlocker(ctx);
+    while (blocker && transient.has(blocker) && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (!installed || running || waitId !== manualWaitId) return;
+        const nextCtx = getContext();
+        const nextReply = latestReply(nextCtx);
+        if (!nextReply || nextReply.key !== reply.key || nextReply.index !== reply.index || composerBusy()) {
+            ui?.refresh();
+            return;
+        }
+        reply = nextReply;
+        blocker = rewriteBlocker(nextCtx);
+    }
+    if (!installed || running || waitId !== manualWaitId) return;
+    if (blocker) {
+        globalThis.toastr?.info(`${blocker}，请稍后再试。`);
         ui?.refresh();
         return;
     }

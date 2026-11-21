@@ -238,7 +238,21 @@ function setDropdownButton(btn, items, value) {
 }
 
 export function createRewriteUI({ getSettings, getView, onVersions, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onQuickChange, onLibraryChange, onRewrite, onJump, onMutation }) {
-    let settingsLauncher, settingsEntry, bar, dialog, observer, frame, poll, clock, shown;
+    let settingsLauncher, settingsEntry, bar, dialog, observer, chatResizeObserver, frame, poll, clock, shown, wasBusy = false;
+    const ensureBarVisible = (forceBottom = false) => {
+        if (!bar?.isConnected || bar.hidden) return;
+        const chat = document.getElementById('chat');
+        if (!chat) return;
+        const chatRect = chat.getBoundingClientRect();
+        const barRect = bar.getBoundingClientRect();
+        if (barRect.height <= 0) return;
+        const clippedBottom = barRect.bottom - (chatRect.bottom - 8);
+        const partiallyVisible = barRect.top < chatRect.bottom && clippedBottom > 1;
+        const nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight <= 180;
+        if (partiallyVisible || (forceBottom && nearBottom && clippedBottom > 1)) {
+            chat.scrollTop += Math.ceil(clippedBottom);
+        }
+    };
     const toolbarObserver = new ResizeObserver(() => {
         if (!bar?.parentElement) return;
         const row = bar.firstElementChild;
@@ -248,6 +262,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             row.style.setProperty('--rewrite-row-scale', Math.min(1, available / row.offsetWidth));
         }
         bar.parentElement.style.setProperty('--rewrite-toolbar-height', bar.offsetHeight + 'px');
+        requestAnimationFrame(() => ensureBarVisible(Boolean(shown?.busy)));
     });
     let inlineNetworkLabel;
     let disposed = false;
@@ -628,8 +643,16 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             toolbarObserver.observe(bar);
             toolbarObserver.observe(bar.firstElementChild);
         }
-        if (bar.parentElement !== host) host.append(bar);
+        const mountedNewHost = bar.parentElement !== host;
+        if (mountedNewHost) host.append(bar);
         bar.dataset.busy = String(view.busy);
+        const enteredBusy = view.busy && !wasBusy;
+        wasBusy = view.busy;
+        if (enteredBusy || mountedNewHost) {
+            requestAnimationFrame(() => ensureBarVisible(true));
+            setTimeout(() => ensureBarVisible(true), 120);
+            setTimeout(() => ensureBarVisible(true), 320);
+        }
 
         const button = bar.querySelector('[data-rewrite]');
         button.hidden = view.busy;
@@ -746,6 +769,10 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             observer = new MutationObserver(() => { onMutation(); refresh(); });
             observer.observe(chat, { childList: true });
         }
+        if (!chatResizeObserver && chat) {
+            chatResizeObserver = new ResizeObserver(() => ensureBarVisible(Boolean(shown?.busy)));
+            chatResizeObserver.observe(chat);
+        }
         sync(); refresh();
     }
     return { install, refresh, sync, openSettings, openLibrary: library.open, dispose() {
@@ -753,6 +780,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         library.dispose();
         document.removeEventListener('visibilitychange', onVisibility);
         observer?.disconnect();
+        chatResizeObserver?.disconnect();
         toolbarObserver.disconnect();
         bar?.parentElement?.style.removeProperty('--rewrite-toolbar-height');
         if (frame) cancelAnimationFrame(frame);

@@ -275,11 +275,16 @@ export async function jumpVersion(reply, target) {
     const message = ctx.chat[reply.index];
     if (keyOf(ctx) !== reply.key || message !== reply.message || (message.swipe_id ?? 0) !== reply.swipeId
         || !Number.isInteger(target) || target < 0 || target >= (message.swipes?.length ?? 0)) return;
+    // This action is on the message footer. Keep that edge at its on-screen position.
+    const chat = document.getElementById('chat');
+    const selector = `.mes[mesid="${reply.index}"]`;
+    const bottom = chat?.querySelector(selector)?.getBoundingClientRect().bottom;
     await ctx.swipe.to(null, target < reply.swipeId ? SWIPE_DIRECTION.LEFT : SWIPE_DIRECTION.RIGHT,
         { source: SWIPE_SOURCE.SWIPE_PICKER, forceMesId: reply.index, forceSwipeId: target, forceDuration: 0 });
     if (keyOf(getContext()) === reply.key) {
         syncMvuChat(message);
-        await redraw(reply.index, reply.key);
+        const block = chat?.querySelector(selector);
+        if (block && Number.isFinite(bottom)) chat.scrollTop += block.getBoundingClientRect().bottom - bottom;
         await ctx.saveChat();
     }
 }

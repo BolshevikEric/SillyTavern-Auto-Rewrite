@@ -21,10 +21,22 @@ const fingerprint = text => {
 export const canRewriteInplace = () => getContext().mainApi === 'openai'
     && typeof getContext().setExtensionPrompt === 'function' && typeof getContext().swipe?.to === 'function';
 
+function inplaceTransaction(message, id = null) {
+    const direct = message?.extra?.[TRANSACTION];
+    if (direct && (id == null || direct.id === id)) return direct;
+    if (Array.isArray(message?.swipe_info)) {
+        for (const entry of message.swipe_info) {
+            const record = entry?.extra?.[TRANSACTION];
+            if (record && (id == null || record.id === id)) return record;
+        }
+    }
+    return null;
+}
+
 export function ownsInplace(job) {
     const ctx = getContext();
     return keyOf(ctx) === job.key && ctx.chat[job.index] === job.source
-        && job.source.extra?.[TRANSACTION]?.id === job.id
+        && Boolean(inplaceTransaction(job.source, job.id))
         && job.prefix.every((message, i) => ctx.chat[i] === message)
         && !ctx.chat.slice(job.index + 1).some(message => message.is_user);
 }
@@ -65,6 +77,10 @@ export async function prepareInplace(job, feedback) {
     job.targetSwipe = source.swipes.length;
     source.extra ??= {};
     source.extra[TRANSACTION] = { id: job.id, index: job.index, original: clone(job.original) };
+    // Keep the transaction metadata on the draft swipe_info entry as well: if
+    // native swipe generation fails from a non-last swipe, core's endSwipe()
+    // clamps to the last swipe and overwrites source.extra via syncSwipeToMes().
+    source.swipe_info[job.attempt.swipeId].extra = clone(source.extra);
     // Preserve the old swipe's MVU snapshot; native receive listeners will write
     // the rewritten state into the new slot using the prepared chat baseline.
     if (job.mvu && job.original.variables?.[job.attempt.swipeId]) {
@@ -104,9 +120,11 @@ export function getInplaceReply(job) {
 
 export function rememberStoppedInplace(job) {
     if (!ownsInplace(job) || !usable(job.stoppedDraft)) return;
+    const record = inplaceTransaction(job.source, job.id);
+    if (!record) return;
     const draft = clone(job.stoppedDraft);
     delete draft.extra?.[TRANSACTION];
-    job.source.extra[TRANSACTION].stopped = { draft, targetSwipe: job.targetSwipe, resultIndex: job.stoppedIndex,
+    record.stopped = { draft, targetSwipe: job.targetSwipe, resultIndex: job.stoppedIndex,
         timing: clone(job.timing), automatic: job.automatic };
 }
 
@@ -163,12 +181,13 @@ export async function restoreInplace(job) {
     clearInplacePrompts(job);
     const ctx = getContext();
     if (keyOf(ctx) !== job.key || ctx.chat[job.index] !== job.source) return false;
-    if (!job.source.extra?.[TRANSACTION] && job.mvu) {
+    const record = inplaceTransaction(job.source, job.id);
+    if (!record && job.mvu) {
         restoreMvu(job);
         await ctx.saveChat();
         return true;
     }
-    if (job.source.extra?.[TRANSACTION]?.id !== job.id) return false;
+    if (!record) return false;
     const owned = ownsInplace(job);
     restoreMvu(job, { restoreChat: owned });
     const original = clone(job.original);

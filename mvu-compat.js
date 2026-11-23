@@ -23,7 +23,17 @@ export async function waitMvuWindow(readyAt, isCurrent) {
 
 const activeData = message => message?.variables?.[message.swipe_id ?? 0];
 const isMvuData = data => data?.stat_data != null && data?.schema != null;
-export const mvuTransaction = message => message?.extra?.[TRANSACTION];
+export function mvuTransaction(message, id = null) {
+    const direct = message?.extra?.[TRANSACTION];
+    if (direct && (id == null || direct.id === id)) return direct;
+    if (Array.isArray(message?.swipe_info)) {
+        for (const entry of message.swipe_info) {
+            const record = entry?.extra?.[TRANSACTION];
+            if (record && (id == null || record.id === id)) return record;
+        }
+    }
+    return undefined;
+}
 
 function pick(data) {
     const result = {};
@@ -115,14 +125,19 @@ export async function finishMvu(job, result, isCurrent) {
 }
 
 export function restoreMvu(job, { restoreChat = true } = {}) {
-    const transaction = mvuTransaction(job.source);
-    if (!transaction || transaction.id !== job.id) return;
+    const transaction = mvuTransaction(job.source, job.id);
+    if (!transaction) return;
     replaceFields(slot(job.source, transaction.swipe), transaction.original);
     if (restoreChat && getContext().chatMetadata) {
         getContext().chatMetadata.variables ??= {};
         replaceFields(getContext().chatMetadata.variables, transaction.chat);
     }
-    delete job.source.extra[TRANSACTION];
+    delete job.source.extra?.[TRANSACTION];
+    if (Array.isArray(job.source.swipe_info)) {
+        for (const entry of job.source.swipe_info) {
+            if (entry?.extra?.[TRANSACTION]?.id === job.id) delete entry.extra[TRANSACTION];
+        }
+    }
 }
 
 export function commitMvu(job, final) {

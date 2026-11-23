@@ -2,7 +2,7 @@ import { createFeedbackLibraryUI } from './feedback-library-ui.js';
 
 function duration(ms) {
     const seconds = Math.max(0, Math.floor(ms / 1000));
-    return seconds < 60 ? `${seconds}秒` : `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
+    return `${seconds}秒`;
 }
 
 function createFloatingMenu() {

@@ -154,12 +154,16 @@ function view() {
     const blocker = rewriteBlocker(ctx);
     // The native target swipe may be one past the array end until the first
     // response. The native history picker uses the saved versions.
+    const waiting = Boolean(manualWait && reply && manualWait.key === reply.key && manualWait.index === reply.index);
+    const busyComposer = composerBusy();
     return { reply, link: running ? null : versionLink(reply), status, busy: Boolean(running), cancelled: Boolean(running?.cancelled),
         stopping: Boolean(running?.stopRequested), stopped: Boolean(saved?.stopped),
         networkLabelAtStart: running?.networkLabelAtStart,
         receiving: Boolean(running?.generating && !running.generationFinished && !running.replyReceived && !running.stopRequested && !running.cancelled),
         canBrowse: Boolean(running && !running.cancelled && chatKey(ctx) === running.key && ctx.chat[running.index] === running.source),
-        idle: !blocker, blocker, composerBusy: composerBusy(), timing: running?.timing ?? saved?.timing,
+        idle: !blocker, canRewrite: !running && !busyComposer && (!blocker || blocker === '正在保存聊天'),
+        waiting, waitingReason: waiting ? manualWait.blocker : '',
+        blocker, composerBusy: busyComposer, timing: running?.timing ?? saved?.timing,
         quick: { ...getQuickDraft(reply?.key ?? chatKey(ctx)) } };
 }
 
@@ -183,6 +187,7 @@ async function openVersions() {
 }
 
 let manualWaitId = 0;
+let manualWait = null;
 
 async function manualRewrite(attempt) {
     if (running) return;
@@ -201,21 +206,32 @@ async function manualRewrite(attempt) {
         ui?.refresh();
         return;
     }
+    if (manualWait && manualWait.key === reply.key && manualWait.index === reply.index && manualWait.swipeId === reply.swipeId) {
+        return;
+    }
     const waitId = ++manualWaitId;
     const transient = new Set(['正在保存聊天', '正在完成回复收尾', '正在切换回复版本']);
-    const deadline = Date.now() + 2500;
     let blocker = rewriteBlocker(ctx);
-    while (blocker && transient.has(blocker) && Date.now() < deadline) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        if (!installed || running || waitId !== manualWaitId) return;
-        const nextCtx = getContext();
-        const nextReply = latestReply(nextCtx);
-        if (!nextReply || nextReply.key !== reply.key || nextReply.index !== reply.index || composerBusy()) {
+    const startedAt = Date.now();
+    try {
+        while (blocker && transient.has(blocker) && Date.now() - startedAt < (blocker === '正在保存聊天' ? 15000 : 4000)) {
+            manualWait = { id: waitId, key: reply.key, index: reply.index, swipeId: reply.swipeId, blocker };
             ui?.refresh();
-            return;
+            await new Promise(resolve => setTimeout(resolve, 100));
+            if (!installed || running || waitId !== manualWaitId) return;
+            const nextCtx = getContext();
+            const nextReply = latestReply(nextCtx);
+            if (!nextReply || nextReply.key !== reply.key || nextReply.index !== reply.index || composerBusy()) {
+                return;
+            }
+            reply = nextReply;
+            blocker = rewriteBlocker(nextCtx);
         }
-        reply = nextReply;
-        blocker = rewriteBlocker(nextCtx);
+    } finally {
+        if (manualWait?.id === waitId) {
+            manualWait = null;
+            ui?.refresh();
+        }
     }
     if (!installed || running || waitId !== manualWaitId) return;
     if (blocker) {

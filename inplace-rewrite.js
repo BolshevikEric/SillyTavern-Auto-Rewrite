@@ -21,6 +21,46 @@ const fingerprint = text => {
 export const canRewriteInplace = () => getContext().mainApi === 'openai'
     && typeof getContext().setExtensionPrompt === 'function' && typeof getContext().swipe?.to === 'function';
 
+function stripTransaction(message) {
+    if (!message || typeof message !== 'object') return message;
+    delete message.extra?.[TRANSACTION];
+    delete message.extra?.auto_rewrite_mvu;
+    if (Array.isArray(message.swipe_info)) {
+        for (const entry of message.swipe_info) {
+            delete entry?.extra?.[TRANSACTION];
+            delete entry?.extra?.auto_rewrite_mvu;
+        }
+    }
+    return message;
+}
+
+function rebuildOriginal(source, record) {
+    if (record.original) return stripTransaction(clone(record.original));
+    const original = stripTransaction(clone(source));
+    const swipeId = Number.isInteger(record.swipeId) ? record.swipeId : 0;
+    const count = Math.max(record.swipeCount || 0, swipeId + 1);
+    if (record.hadSwipes === false) {
+        delete original.swipes;
+        delete original.swipe_info;
+    } else {
+        original.swipes = Array.isArray(original.swipes) ? original.swipes.slice(0, count) : [];
+        original.swipes[swipeId] = record.draft.mes;
+        original.swipe_info = Array.isArray(original.swipe_info) ? original.swipe_info.slice(0, count) : [];
+        original.swipe_info[swipeId] = info(record.draft);
+    }
+    if (record.hadSwipeId === false) delete original.swipe_id;
+    else original.swipe_id = swipeId;
+    original.mes = record.draft.mes;
+    original.send_date = record.draft.send_date;
+    original.gen_started = record.draft.gen_started;
+    original.gen_finished = record.draft.gen_finished;
+    if (record.draft.title === undefined) delete original.title;
+    else original.title = record.draft.title;
+    original.extra = clone(record.draft.extra ?? {});
+    if (Array.isArray(original.variables)) original.variables = original.variables.slice(0, count);
+    return original;
+}
+
 function inplaceTransaction(message, id = null) {
     const direct = message?.extra?.[TRANSACTION];
     if (direct && (id == null || direct.id === id)) return direct;
@@ -67,20 +107,49 @@ export async function prepareInplace(job, feedback) {
     if (!job.inplaceFeedback.trim()) throw new Error('修改意见被用户输入正则清空');
     job.inplace = true;
     job.injectionKeys = [`auto_rewrite_${job.id}_draft`, `auto_rewrite_${job.id}_feedback`];
+    stripTransaction(job.original);
     const source = job.source;
+    const hadSwipes = Array.isArray(job.original.swipes) && job.original.swipes.length > 0;
+    const hadSwipeId = job.original.swipe_id !== undefined;
     source.swipes ??= [source.mes];
     if (!source.swipes.length) source.swipes.push(source.mes);
     source.swipe_id ??= 0;
     source.swipes[job.attempt.swipeId] = job.attempt.text;
     source.swipe_info ??= [];
-    source.swipe_info[job.attempt.swipeId] = info(job.original);
+    for (const entry of source.swipe_info) {
+        delete entry?.extra?.[TRANSACTION];
+        delete entry?.extra?.auto_rewrite_mvu;
+    }
+    const draftInfo = info(job.original);
+    source.swipe_info[job.attempt.swipeId] = draftInfo;
     job.targetSwipe = source.swipes.length;
     source.extra ??= {};
-    source.extra[TRANSACTION] = { id: job.id, index: job.index, original: clone(job.original) };
-    // Keep the transaction metadata on the draft swipe_info entry as well: if
-    // native swipe generation fails from a non-last swipe, core's endSwipe()
-    // clamps to the last swipe and overwrites source.extra via syncSwipeToMes().
-    source.swipe_info[job.attempt.swipeId].extra = clone(source.extra);
+    // Persist only the single draft swipe metadata (never a duplicate of all
+    // swipes) so saving chat stays fast and cannot nest across retries.
+    source.extra[TRANSACTION] = {
+        id: job.id,
+        index: job.index,
+        swipeId: job.attempt.swipeId,
+        swipeCount: source.swipes.length,
+        hadSwipes,
+        hadSwipeId,
+        draft: {
+            mes: job.attempt.text,
+            send_date: draftInfo.send_date,
+            gen_started: draftInfo.gen_started,
+            gen_finished: draftInfo.gen_finished,
+            title: job.original.title,
+            extra: clone(draftInfo.extra),
+        },
+    };
+    // Keep only a lightweight marker on the draft swipe_info entry: if native
+    // swipe generation fails from a non-last swipe, core's endSwipe() clamps
+    // to the last swipe and overwrites source.extra via syncSwipeToMes().
+    source.swipe_info[job.attempt.swipeId].extra ??= {};
+    source.swipe_info[job.attempt.swipeId].extra[TRANSACTION] = { id: job.id, index: job.index };
+    if (job.mvu && source.extra.auto_rewrite_mvu) {
+        source.swipe_info[job.attempt.swipeId].extra.auto_rewrite_mvu = clone(source.extra.auto_rewrite_mvu);
+    }
     // Preserve the old swipe's MVU snapshot; native receive listeners will write
     // the rewritten state into the new slot using the prepared chat baseline.
     if (job.mvu && job.original.variables?.[job.attempt.swipeId]) {
@@ -131,7 +200,7 @@ export function rememberStoppedInplace(job) {
 export async function commitInplace(job, result) {
     if (!ownsInplace(job)) throw new Error('聊天已变化，未覆盖新的聊天内容');
     const ctx = getContext();
-    const original = clone(job.original);
+    const original = stripTransaction(clone(job.original));
     original.swipes ??= [original.mes];
     if (!original.swipes.length) original.swipes.push(original.mes);
     original.swipes[job.attempt.swipeId] = job.attempt.text;
@@ -190,7 +259,7 @@ export async function restoreInplace(job) {
     if (!record) return false;
     const owned = ownsInplace(job);
     restoreMvu(job, { restoreChat: owned });
-    const original = clone(job.original);
+    const original = stripTransaction(clone(job.original));
     for (const key of Object.keys(job.source)) if (!Object.hasOwn(original, key)) delete job.source[key];
     Object.assign(job.source, original);
     if (owned && !job.recovering) ctx.chat.splice(job.index + 1);
@@ -202,13 +271,33 @@ export async function restoreInplace(job) {
 
 export async function recoverInplace() {
     const ctx = getContext();
-    const index = ctx.chat.findIndex(m => m.extra?.[TRANSACTION]?.original);
-    if (index < 0) return false;
+    const index = ctx.chat.findIndex(m => m.extra?.[TRANSACTION]?.original || m.extra?.[TRANSACTION]?.draft);
+    if (index < 0) {
+        // Silently prune stale transaction entries left inside swipe_info from
+        // older failed swipes so bloated chats slim down automatically.
+        let pruned = false;
+        for (const message of ctx.chat) {
+            if (message?.extra?.[TRANSACTION] || !Array.isArray(message?.swipe_info)) continue;
+            for (const entry of message.swipe_info) {
+                if (entry?.extra && Object.hasOwn(entry.extra, TRANSACTION)) {
+                    delete entry.extra[TRANSACTION];
+                    pruned = true;
+                }
+                if (entry?.extra && Object.hasOwn(entry.extra, 'auto_rewrite_mvu') && !message.extra?.auto_rewrite_mvu) {
+                    delete entry.extra.auto_rewrite_mvu;
+                    pruned = true;
+                }
+            }
+        }
+        if (pruned) await ctx.saveChat();
+        return false;
+    }
     const source = ctx.chat[index], record = source.extra[TRANSACTION];
+    const original = rebuildOriginal(source, record);
     if (usable(record.stopped?.draft)) {
-        const job = { id: record.id, index, source, original: record.original,
+        const job = { id: record.id, index, source, original,
             key: keyOf(ctx), prefix: ctx.chat.slice(0, index),
-            attempt: { swipeId: record.original.swipe_id ?? 0, text: record.original.mes },
+            attempt: { swipeId: original.swipe_id ?? 0, text: original.mes },
             targetSwipe: record.stopped.targetSwipe, stoppedIndex: record.stopped.resultIndex, timing: record.stopped.timing,
             automatic: record.stopped.automatic, stopRequested: true, mvu: mvuTransaction(source) };
         const result = clone(record.stopped.draft);
@@ -216,6 +305,6 @@ export async function recoverInplace() {
         await commitInplace(job, result);
         return 'stopped';
     }
-    return restoreInplace({ id: record.id, index, source, original: record.original,
+    return restoreInplace({ id: record.id, index, source, original,
         key: keyOf(ctx), prefix: ctx.chat.slice(0, index), recovering: true });
 }

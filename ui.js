@@ -656,10 +656,12 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
 
         const button = bar.querySelector('[data-rewrite]');
         button.hidden = view.busy;
-        button.disabled = view.busy || !view.idle || view.composerBusy;
+        button.disabled = view.busy || view.waiting || !view.canRewrite;
         button.querySelector('span').textContent = view.link ? '再写一版' : '重写正文';
         button.classList.toggle('auto-rewrite-primary', !view.link);
-        button.title = view.blocker || (view.composerBusy ? '请先发送或清空输入框中的草稿与附件' : `重写当前第 ${view.reply.swipeId + 1} 版`);
+        button.title = view.waiting
+            ? '等待保存完成后自动开始重写'
+            : ((view.blocker && view.blocker !== '正在保存聊天') ? view.blocker : view.composerBusy ? '请先发送或清空输入框中的草稿与附件' : `重写当前第 ${view.reply.swipeId + 1} 版`);
 
         // This status is optional on upstream SillyTavern. Its label is replaced
         // per request, so the label from the initial reply cannot enter this row.
@@ -675,11 +677,13 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         const phase = networkPhase === '请求已发出，等待上游响应' ? '等待模型响应' : networkPhase;
         const caption = view.busy
             ? phase ? `重写 · ${phase}` : view.receiving ? '正在重写' : view.status
-            : view.blocker || (view.link?.original ? '原稿' : view.stopped ? '已停止，重写稿已保留' : view.link ? '重写稿' : '');
+            : view.waiting
+                ? (view.waitingReason === '正在保存聊天' ? '等待保存完成，随后自动重写…' : '等待当前操作完成，随后自动重写…')
+                : view.blocker || (view.link?.original ? '原稿' : view.stopped ? '已停止，重写稿已保留' : view.link ? '重写稿' : '');
         const meta = bar.querySelector('.auto-rewrite-meta');
         meta.hidden = !caption;
         const indicator = meta.querySelector('.auto-rewrite-indicator');
-        indicator.hidden = !view.busy || view.cancelled || view.stopping;
+        indicator.hidden = (!view.busy && !view.waiting) || view.cancelled || view.stopping;
         const captionEl = meta.querySelector('[data-caption]');
         if (captionEl.textContent !== caption) captionEl.textContent = caption;
         const jump = bar.querySelector('[data-jump]');
@@ -717,10 +721,10 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         quickModeBtn.disabled = view.busy;
         const quickRunBtn = bar.querySelector('[data-quick-run]');
         const needText = isReplace && !hasQuickText;
-        quickRunBtn.disabled = view.busy || !view.idle || view.composerBusy || needText;
+        quickRunBtn.disabled = view.busy || view.waiting || !view.canRewrite || needText;
         quickRunBtn.title = needText
             ? '「仅用」模式下请先输入即时修改意见'
-            : (view.blocker || (view.composerBusy ? '请先发送或清空输入框中的草稿与附件' : '按当前即时修改意见立即重写（Ctrl+Enter）'));
+            : (view.waiting ? '等待保存完成后自动开始重写' : ((view.blocker && view.blocker !== '正在保存聊天') ? view.blocker : view.composerBusy ? '请先发送或清空输入框中的草稿与附件' : '按当前即时修改意见立即重写（Ctrl+Enter）'));
         const timing = view.timing;
         const time = bar.querySelector('[data-time]');
         const elapsed = timing ? duration((timing.finishedAt ?? Date.now()) - timing.rewriteStartedAt) : '';

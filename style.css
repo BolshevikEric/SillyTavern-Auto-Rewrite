@@ -859,21 +859,56 @@ details[open] > .auto-rewrite-disclosure::after { transform: rotate(225deg); }
     animation: ar-busy-sweep 1.6s linear infinite;
 }
 
-/* ---------- Desktop compact proportions & clear hierarchy ---------- */
+.auto-rewrite-indicator { color: var(--ar-accent); }
+
+/* ---------- Desktop compact proportions & stable width ---------- */
 @media (min-width: 641px) {
     #chat > .mes > .auto-rewrite-actions {
         min-height: 0;
+        width: min(456px, calc(100% - 160px));
         max-width: calc(100% - 160px);
         padding: 3px 5px;
         border-radius: 12px;
     }
-    .auto-rewrite-row { gap: 0; }
-    .auto-rewrite-main { gap: 2px; }
-    /* Actions first, subtle status hint at the tail of the left group */
+    .auto-rewrite-row {
+        width: 100%;
+        min-width: 0;
+        justify-content: space-between;
+        gap: 0;
+    }
+    .auto-rewrite-main {
+        flex: 1 1 auto;
+        min-width: 0;
+        gap: 2px;
+    }
+    /* Idle: actions first, quiet status tag at the tail */
     .auto-rewrite-actions [data-rewrite] { order: 1; }
     .auto-rewrite-actions [data-quick-toggle] { order: 2; }
     .auto-rewrite-actions [data-jump] { order: 3; }
-    .auto-rewrite-meta { order: 4; }
+    .auto-rewrite-meta {
+        order: 4;
+        flex: 0 1 auto;
+        min-width: 0;
+        overflow: hidden;
+    }
+    /* Busy: status + timer anchored on the left, version button pinned before divider */
+    .auto-rewrite-actions[data-busy="true"] .auto-rewrite-meta {
+        order: 1;
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+    .auto-rewrite-actions[data-busy="true"] .auto-rewrite-meta [data-caption] {
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: none;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .auto-rewrite-actions[data-busy="true"] [data-jump] {
+        order: 2;
+        margin-inline-start: auto;
+    }
     .auto-rewrite-actions button {
         height: 28px;
         min-height: 28px;

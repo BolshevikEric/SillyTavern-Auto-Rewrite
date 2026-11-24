@@ -13,7 +13,21 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
     const summaries = new Set();
     const menu = createMenu();
     let dialog, selected, query = '', filter = 'all', lastDeleted;
-    let listSignature, bindingsSignature, disposed = false;
+    let listSignature, bindingsSignature, disposed = false, mobileView = 'list';
+    const isMobile = () => globalThis.matchMedia?.('(max-width: 700px)').matches ?? false;
+    function setMobileView(view) {
+        mobileView = view === 'editor' ? 'editor' : 'list';
+        if (!dialog) return;
+        dialog.dataset.mobileView = mobileView;
+        if (mobileView === 'editor') {
+            const editorWrap = dialog.querySelector('.auto-rewrite-library-editor-wrap');
+            if (editorWrap) editorWrap.scrollTop = 0;
+            if (isMobile()) {
+                const options = dialog.querySelector('.auto-rewrite-entry-options');
+                if (options) options.open = false;
+            }
+        }
+    }
     const entries = () => getSettings().feedbackEntries;
     const current = () => entries().find(entry => entry.id === selected);
     const persist = () => { onChange(); sync(); };
@@ -51,13 +65,16 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
     }
 
     function select(id) {
-        menu.close(); selected = id; bindingsSignature = null; sync();
+        menu.close(); selected = id; bindingsSignature = null;
+        if (isMobile()) setMobileView('editor');
+        sync();
     }
 
     function add() {
         const entry = normalizeEntry({ name: '新修改意见', order: 3, always: true });
         entries().push(entry); selected = entry.id; query = ''; filter = 'all';
         if (dialog) dialog.querySelector('[data-search]').value = '';
+        setMobileView('editor');
         persist();
         dialog?.querySelector('[data-name]')?.focus();
     }
@@ -69,6 +86,7 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
         lastDeleted = { entry, index };
         entries().splice(index, 1);
         selected = sortedEntries(getSettings())[0]?.id;
+        if (isMobile()) setMobileView('list');
         persist();
     }
 
@@ -130,13 +148,21 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
     function open(id) {
         if (disposed) return;
         if (id) { selected = id; query = ''; filter = 'all'; }
-        if (dialog) { if (id) dialog.querySelector('[data-search]').value = ''; sync(); dialog.focus(); return; }
+        if (dialog) {
+            if (id) {
+                dialog.querySelector('[data-search]').value = '';
+                if (isMobile()) setMobileView('editor');
+            }
+            sync(); dialog.focus(); return;
+        }
         onOpen?.();
         selected = entries().some(entry => entry.id === selected) ? selected : sortedEntries(getSettings())[0]?.id;
+        mobileView = id && selected ? 'editor' : 'list';
         listSignature = null; bindingsSignature = null;
         const shell = el('dialog', 'auto-rewrite-dialog auto-rewrite-library-dialog');
+        shell.dataset.mobileView = mobileView;
         shell.setAttribute('aria-label', '修改意见仓库');
-        shell.innerHTML = `<header class="auto-rewrite-library-heading"><div><h3>修改意见仓库</h3></div><div class="auto-rewrite-library-heading-actions"><button type="button" data-import title="追加导入条目" aria-label="导入仓库"><i class="fa-solid fa-file-import" aria-hidden="true"></i></button><button type="button" data-export title="导出全部条目" aria-label="导出仓库"><i class="fa-solid fa-file-export" aria-hidden="true"></i></button><button type="button" class="is-primary" data-add><i class="fa-solid fa-plus" aria-hidden="true"></i>新建</button><button type="button" data-close aria-label="关闭仓库"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div></header>
+        shell.innerHTML = `<header class="auto-rewrite-library-heading"><div class="auto-rewrite-library-heading-main"><button type="button" class="auto-rewrite-library-back" data-mobile-back aria-label="返回条目列表"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i><span>列表</span></button><h3 class="auto-rewrite-library-title-list">修改意见仓库</h3><h3 class="auto-rewrite-library-title-editor">编辑条目</h3></div><div class="auto-rewrite-library-heading-actions"><button type="button" data-import title="追加导入条目" aria-label="导入仓库"><i class="fa-solid fa-file-import" aria-hidden="true"></i></button><button type="button" data-export title="导出全部条目" aria-label="导出仓库"><i class="fa-solid fa-file-export" aria-hidden="true"></i></button><button type="button" class="is-primary" data-add><i class="fa-solid fa-plus" aria-hidden="true"></i>新建</button><button type="button" data-close aria-label="关闭仓库"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div></header>
             <div class="auto-rewrite-library-layout"><aside class="auto-rewrite-library-sidebar"><div class="auto-rewrite-library-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input type="search" data-search placeholder="搜索名称或内容" aria-label="搜索修改意见"></div><div class="auto-rewrite-library-filters"><button type="button" data-filter="all">全部条目</button><button type="button" data-filter="active">当前生效</button></div><div class="auto-rewrite-library-list" data-list></div></aside>
             <main class="auto-rewrite-library-editor-wrap"><div class="auto-rewrite-library-empty" data-empty><i class="fa-solid fa-book-open" aria-hidden="true"></i><b>保存一套可复用的修改意见</b><span>创建条目，再设置常驻或预设、角色绑定。</span><button type="button" data-create-first>新建条目</button></div><div class="auto-rewrite-library-editor" data-editor>
             <div class="auto-rewrite-library-entry-heading"><input class="text_pole" type="text" data-name placeholder="条目名称" aria-label="条目名称"><label class="auto-rewrite-quick-toggle"><input type="checkbox" data-enabled><span>启用</span></label></div>
@@ -149,6 +175,7 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
         dialog = shell;
         const button = (selector, handler) => shell.querySelector(selector).addEventListener('click', handler);
         button('[data-close]', () => shell.close()); button('[data-add]', add); button('[data-create-first]', add);
+        button('[data-mobile-back]', () => { menu.close(); setMobileView('list'); sync(); });
         button('[data-delete]', remove); button('[data-undo]', undo); button('[data-export]', exportLibrary);
         button('[data-import]', () => shell.querySelector('[data-file]').click());
         shell.querySelector('[data-file]').addEventListener('change', event => { void importLibrary(event.target.files?.[0]); event.target.value = ''; });
@@ -188,6 +215,10 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
         shell.addEventListener('click', event => { const close = backdropPressed && outside(event); backdropPressed = false; if (close) shell.close(); });
         shell.addEventListener('cancel', event => { if (menu.isOpen()) { event.preventDefault(); menu.close(); } });
         shell.addEventListener('close', () => { menu.close(); shell.remove(); if (dialog === shell) dialog = null; });
+        if (isMobile()) {
+            const options = shell.querySelector('.auto-rewrite-entry-options');
+            if (options) options.open = false;
+        }
         document.body.append(shell); sync(); shell.showModal();
     }
 
@@ -216,7 +247,11 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
             const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.checked = entry.enabled;
             checkbox.setAttribute('aria-label', `启用${entry.name || '条目'}`);
             checkbox.addEventListener('change', () => { entry.enabled = checkbox.checked; persist(); });
-            toggle.append(checkbox); row.append(pick, toggle); return row;
+            toggle.append(checkbox);
+            const chevron = el('i', 'fa-solid fa-chevron-right auto-rewrite-library-row-chevron');
+            chevron.setAttribute('aria-hidden', 'true');
+            chevron.addEventListener('click', () => select(entry.id));
+            row.append(pick, toggle, chevron); return row;
         }));
         if (!visible.length) list.append(el('p', 'auto-rewrite-library-list-empty', q ? '没有找到匹配的条目' : filter === 'active' ? '当前没有生效条目' : '仓库还是空的，点击“新建”添加。'));
         list.scrollTop = oldScroll;
@@ -249,6 +284,9 @@ export function createFeedbackLibraryUI({ getSettings, createMenu, onChange, onO
             updateSummary(root, composition);
         }
         if (!dialog) return;
+        const entryNow = current();
+        if (!entryNow && mobileView === 'editor') mobileView = 'list';
+        dialog.dataset.mobileView = mobileView;
         dialog.querySelector('[data-context]').textContent = contextLabel(composition.context);
         for (const node of dialog.querySelectorAll('[data-filter]')) node.setAttribute('aria-pressed', String(node.dataset.filter === filter));
         renderList(composition);

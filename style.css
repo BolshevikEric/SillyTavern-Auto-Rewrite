@@ -337,7 +337,21 @@ button.auto-rewrite-menu-item[aria-selected="true"] .auto-rewrite-menu-check { o
     .auto-rewrite-actions button { gap: 3px; padding-inline: 4px; }
     .auto-rewrite-meta { gap: 3px; padding-inline: 2px; }
     .auto-rewrite-buttons { padding-inline-start: 4px; }
-    .auto-rewrite-dialog { padding: 14px; }
+    .auto-rewrite-dialog:not(.auto-rewrite-library-dialog) {
+        width: calc(100vw - 16px);
+        max-height: 90vh;
+        max-height: 90dvh;
+        padding: 14px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+        border-radius: 14px;
+    }
+    .auto-rewrite-setting-toggle { min-height: 44px; padding: 10px 12px; }
+    button.auto-rewrite-select-btn, .auto-rewrite-combo { min-height: 40px; height: 40px; }
+    .auto-rewrite-combo input { font-size: 15px; }
+    button.auto-rewrite-combo-btn { width: 32px; height: 32px; }
+    .auto-rewrite-menu { max-width: calc(100vw - 16px); }
+    .auto-rewrite-menu-search { height: 36px; }
+    .auto-rewrite-menu-search input { font-size: 15px; }
+    button.auto-rewrite-menu-item { min-height: 38px; padding: 8px 10px; }
 }
 @media (prefers-reduced-motion: reduce) {
     .auto-rewrite-indicator { animation: none; }
@@ -368,6 +382,8 @@ button.auto-rewrite-menu-item[aria-selected="true"] .auto-rewrite-menu-check { o
 .auto-rewrite-library-dialog button.is-primary { background: rgba(182,164,248,.18); border-color: rgba(182,164,248,.35); color: #e2d9ff; }
 .auto-rewrite-library-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; padding: 17px 19px 14px; border-bottom: 1px solid rgba(182,164,248,.14); }
 .auto-rewrite-library-heading > div:first-child { min-width: 0; }
+.auto-rewrite-library-heading-main { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.auto-rewrite-library-back, .auto-rewrite-library-title-editor, .auto-rewrite-library-row-chevron { display: none !important; }
 .auto-rewrite-library-heading small { font-size: .59em; color: #b6a4f8; letter-spacing: .12em; }
 .auto-rewrite-library-heading h3 { margin: 2px 0 4px; font-size: 1.08em; font-weight: 600; }
 .auto-rewrite-library-heading p { margin: 0; max-width: 580px; opacity: .6; font-size: .71em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -439,22 +455,63 @@ button.auto-rewrite-menu-item[aria-selected="true"] .auto-rewrite-menu-check { o
 .auto-rewrite-library-undo > span { min-width: 0; overflow-wrap: anywhere; }
 .auto-rewrite-library-undo > button { flex: none; }
 @media (max-width: 700px) {
-    .auto-rewrite-library-dialog[open] { width: calc(100vw - 16px); height: 92vh; height: 92dvh; max-height: 92vh; max-height: 92dvh; }
-    .auto-rewrite-library-heading { padding: 12px; gap: 7px; }
-    .auto-rewrite-library-heading h3 { font-size: .98em; }
+    .auto-rewrite-library-dialog[open] {
+        width: calc(100vw - 12px);
+        max-width: none;
+        height: calc(100vh - 12px);
+        height: calc(100dvh - 12px);
+        max-height: calc(100vh - 12px);
+        max-height: calc(100dvh - 12px);
+        border-radius: 14px;
+    }
+    .auto-rewrite-library-heading { padding: 11px 12px; gap: 8px; }
+    .auto-rewrite-library-heading h3 { font-size: 1em; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .auto-rewrite-library-heading p { max-width: min(40vw,240px); }
-    .auto-rewrite-library-heading-actions { gap: 3px; }
-    .auto-rewrite-library-heading-actions > button:not(.is-primary) { width: 28px; }
-    .auto-rewrite-library-heading-actions > button { padding: 5px 7px; font-size: .73em; }
-    .auto-rewrite-library-layout { grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(110px,25%) minmax(0,1fr); }
-    .auto-rewrite-library-sidebar { gap: 6px; padding: 9px 11px; border-right: 0; border-bottom: 1px solid rgba(182,164,248,.12); }
-    .auto-rewrite-library-search { height: 31px; min-height: 31px; }
-    .auto-rewrite-library-filters > button { min-height: 25px; padding: 3px; }
+    .auto-rewrite-library-heading-actions { gap: 5px; }
+    .auto-rewrite-library-heading-actions > button { min-height: 34px; padding: 6px 10px; font-size: .8em; }
+    .auto-rewrite-library-heading-actions > button:not(.is-primary) { width: 34px; padding: 0; }
+    .auto-rewrite-library-dialog[data-mobile-view="editor"] .auto-rewrite-library-back {
+        display: inline-flex !important;
+        flex: none;
+        min-height: 34px;
+        padding: 5px 10px 5px 8px;
+        gap: 5px;
+        font-size: .8em;
+        border-color: rgba(182,164,248,.28);
+        background: rgba(182,164,248,.1);
+        color: #dfd6ff;
+    }
+    .auto-rewrite-library-dialog[data-mobile-view="editor"] .auto-rewrite-library-title-list { display: none !important; }
+    .auto-rewrite-library-dialog[data-mobile-view="editor"] .auto-rewrite-library-title-editor { display: block !important; }
+    .auto-rewrite-library-dialog[data-mobile-view="editor"] .auto-rewrite-library-heading-actions > :is([data-import], [data-export], [data-add]) { display: none !important; }
+    .auto-rewrite-library-layout { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .auto-rewrite-library-sidebar { flex: 1; min-height: 0; gap: 9px; padding: 11px 12px; border-right: 0; border-bottom: 0; }
+    .auto-rewrite-library-dialog[data-mobile-view="editor"] .auto-rewrite-library-sidebar { display: none; }
+    .auto-rewrite-library-dialog[data-mobile-view="list"] .auto-rewrite-library-editor-wrap { display: none; }
+    .auto-rewrite-library-search { height: 38px; min-height: 38px; padding: 0 11px; }
+    .auto-rewrite-library-search > input { font-size: 15px; }
+    .auto-rewrite-library-filters { gap: 6px; }
+    .auto-rewrite-library-filters > button { min-height: 34px; padding: 6px 8px; font-size: .82em; }
     .auto-rewrite-library-sort-note { display: none; }
-    .auto-rewrite-library-row-pick { min-height: 44px !important; padding: 6px !important; }
-    .auto-rewrite-library-editor-wrap { padding: 12px; }
-    .auto-rewrite-library-content-label > textarea { min-height: 180px; }
-    .auto-rewrite-library-footer { padding: 10px 12px; }
+    .auto-rewrite-library-row { margin-bottom: 7px; border-color: rgba(182,164,248,.12); background: rgba(255,255,255,.025); }
+    .auto-rewrite-library-row-pick { min-height: 52px !important; padding: 9px 10px !important; }
+    .auto-rewrite-library-row-text b { font-size: .9em; }
+    .auto-rewrite-library-row-text small { font-size: .74em; }
+    .auto-rewrite-library-row-chevron { display: inline-flex !important; align-items: center; flex: none; padding: 10px 10px 10px 2px; font-size: .74em; opacity: .48; cursor: pointer; }
+    .auto-rewrite-library-editor-wrap { flex: 1; min-height: 0; padding: 12px 12px 24px; }
+    .auto-rewrite-library-editor { gap: 11px; }
+    .auto-rewrite-library-entry-heading { gap: 10px; }
+    .auto-rewrite-library-entry-heading > input { min-height: 40px; padding: 8px 11px; font-size: 15px; }
+    .auto-rewrite-library-entry-heading > label { font-size: .84em; }
+    .auto-rewrite-library-entry-tools input { width: 72px; min-height: 34px; font-size: 15px; }
+    .auto-rewrite-library-entry-tools button { width: 36px; min-height: 36px; font-size: .82em; }
+    .auto-rewrite-library-scope { padding: 4px; }
+    .auto-rewrite-library-scope button { min-height: 38px; font-size: .84em; }
+    .auto-rewrite-library-binding-group > div:first-child { flex-wrap: wrap; gap: 6px; }
+    .auto-rewrite-library-binding-group button { min-height: 32px; padding: 5px 9px; font-size: .76em; }
+    .auto-rewrite-library-match button { min-height: 32px; padding: 5px 9px; font-size: .74em; }
+    .auto-rewrite-library-footer { padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); }
+    .auto-rewrite-library-footer .auto-rewrite-library-preview pre { max-height: 30vh; max-height: 30dvh; }
 }
 @media (prefers-reduced-motion: reduce) {
     .auto-rewrite-library-dialog button { transition: none; }
@@ -511,7 +568,23 @@ details[open] > .auto-rewrite-disclosure::after { transform: rotate(225deg); }
 .auto-rewrite-library-summary .auto-rewrite-library-context { overflow-wrap: anywhere; }
 .auto-rewrite-library-bindings > [data-context] { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 700px) {
-    .auto-rewrite-library-content-label > textarea { height: 28vh; min-height: 9rem; }
+    .auto-rewrite-library-content-label > textarea {
+        height: clamp(14rem, 48vh, 32rem);
+        height: clamp(14rem, 48dvh, 32rem);
+        min-height: 12rem;
+        max-height: none;
+        font-size: 15px;
+        line-height: 1.65;
+    }
+    .auto-rewrite-quick-box {
+        width: min(540px, calc(100vw - 16px));
+        padding: 7px 8px;
+        gap: 5px;
+    }
+    .auto-rewrite-quick-input {
+        min-height: 34px;
+        font-size: 14px;
+    }
 }
 
 .auto-rewrite-quick-trigger {

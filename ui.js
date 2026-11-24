@@ -256,10 +256,15 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
     const toolbarObserver = new ResizeObserver(() => {
         if (!bar?.parentElement) return;
         const row = bar.firstElementChild;
-        const style = getComputedStyle(bar);
-        const available = bar.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-        if (available > 0 && row.offsetWidth > 0) {
-            row.style.setProperty('--rewrite-row-scale', Math.min(1, available / row.offsetWidth));
+        const compact = globalThis.matchMedia?.('(max-width: 640px)').matches ?? false;
+        if (compact) {
+            row.style.setProperty('--rewrite-row-scale', '1');
+        } else {
+            const style = getComputedStyle(bar);
+            const available = bar.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+            if (available > 0 && row.offsetWidth > 0) {
+                row.style.setProperty('--rewrite-row-scale', Math.min(1, available / row.offsetWidth));
+            }
         }
         bar.parentElement.style.setProperty('--rewrite-toolbar-height', bar.offsetHeight + 'px');
         requestAnimationFrame(() => ensureBarVisible(Boolean(shown?.busy)));

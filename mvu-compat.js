@@ -5,7 +5,7 @@ import { backgroundDelay } from './background-scheduler.js';
 // Keep only its own fields in the transaction so other scripts retain their data.
 const FIELDS = ['initialized_lorebooks', 'stat_data', 'schema', 'display_data', 'delta_data'];
 const TRANSACTION = 'auto_rewrite_mvu';
-export const mvuFeedback = '\n\n【MVU 重写约定】本次是替换上一版正文，不是推进下一轮剧情。上一版的变量更新作废；当前提供的变量是本轮开始前的状态。如需输出变量更新，请只计算重写版相对此状态的变化，不要累加上一版的变化。';
+export const mvuFeedback = '\n\n【MVU 重写约定】本次是替换上一版正文，不是推进下一轮剧情。上一版的变量更新作废；当前提供的变量是本轮开始前的状态。请仍按原预设与角色卡格式要求在末尾保留变量更新块（如 <UpdateVariable> / <JSONPatch> 等），不要将其当作“正文之外的内容”省略；计算变量更新时只基于本轮开始前的状态，不要累加上一版的变化。';
 
 export function mvuBusy() {
     return Boolean(globalThis.Mvu?.isDuringExtraAnalysis?.());
@@ -58,18 +58,25 @@ function slot(message, swipe = message.swipe_id ?? 0) {
 export function prepareMvu(job) {
     const ctx = getContext();
     const current = activeData(job.source);
+    const active = Boolean(globalThis.Mvu);
     // No MVU dependency is introduced for ordinary chats or other variable systems.
-    if (!globalThis.Mvu && !isMvuData(current)) return;
+    if (!active && !isMvuData(current)) return;
     let baseline;
     for (let i = job.index - 1; i >= 0; i--) {
         const data = activeData(ctx.chat[i]);
         if (isMvuData(data)) { baseline = pick(data); break; }
     }
     if (!baseline && !isMvuData(current)) return;
-    if (!baseline) throw new Error('找不到本轮开始前的 MVU 变量快照，已保留原稿；请先用 MVU 恢复历史楼层变量');
-    if (!isMvuData(current)) throw new Error('本轮 MVU 变量尚未写入，请等变量更新完成后再重写');
+    if (!active) {
+        // Legacy MVU data exists in chat history, but MVU itself is not loaded.
+        // Preserve the existing snapshot on the rewritten swipe without blocking.
+        baseline ??= pick(current);
+    } else {
+        if (!baseline) throw new Error('找不到本轮开始前的 MVU 变量快照，已保留原稿；请先用 MVU 恢复历史楼层变量');
+        if (!isMvuData(current)) throw new Error('本轮 MVU 变量尚未写入，请等变量更新完成后再重写');
+    }
     const transaction = {
-        id: job.id, swipe: job.attempt.swipeId, original: pick(current), baseline,
+        id: job.id, swipe: job.attempt.swipeId, active, original: pick(current), baseline,
         chat: pick(ctx.chatMetadata?.variables),
         mirrorChat: isMvuData(ctx.chatMetadata?.variables),
     };
@@ -112,15 +119,31 @@ export async function finishMvu(job, result, isCurrent) {
     if (preserveStopped()) return;
     if (!isCurrent()) throw new Error('重写已取消或聊天已变化');
     if (!isMvuData(activeData(result))) {
-        // MVU throttles MESSAGE_RECEIVED. A very fast second reply may therefore
-        // miss inline parsing; use its public parser, with the same baseline.
-        if (!globalThis.Mvu?.parseMessage || !/<UpdateVariable\b|<JSONPatch\b|_\.(?:set|add|assign|insert|remove|delete)\s*\(/i.test(result.mes)) {
-            throw new Error('重写稿未收到 MVU 变量快照，已保留原稿；请确认 MVU 变量解析已完成');
+        // If MVU is not loaded in this session, silently inherit the baseline
+        // snapshot so legacy chats with historical MVU data can still rewrite.
+        if (!globalThis.Mvu) {
+            replaceFields(slot(result), job.mvu.baseline);
+            return;
         }
-        const data = await globalThis.Mvu.parseMessage(result.mes, structuredClone(job.mvu.baseline));
-        if (!isCurrent()) throw new Error('重写已取消或聊天已变化');
-        if (!isMvuData(data)) throw new Error('MVU 未返回可用的重写变量，已保留原稿');
-        replaceFields(slot(result), pick(data));
+        // MVU throttles MESSAGE_RECEIVED. A very fast second reply may therefore
+        // miss inline parsing; try its public parser with the same baseline.
+        if (globalThis.Mvu?.parseMessage && /<UpdateVariable\b|<JSONPatch\b|_\.(?:set|add|assign|insert|remove|delete)\s*\(/i.test(result.mes)) {
+            try {
+                const data = await globalThis.Mvu.parseMessage(result.mes, structuredClone(job.mvu.baseline));
+                if (!isCurrent()) throw new Error('重写已取消或聊天已变化');
+                if (isMvuData(data)) {
+                    replaceFields(slot(result), pick(data));
+                    return;
+                }
+            } catch (error) {
+                if (!isCurrent()) throw error;
+                console.warn('[Auto Rewrite] Fallback MVU parseMessage failed; retaining baseline snapshot', error);
+            }
+        }
+        // Never discard a completed rewrite draft just because MVU did not emit
+        // a new snapshot (e.g. no variable changes or omitted update block).
+        job.mvuPending = true;
+        replaceFields(slot(result), job.mvu.baseline);
     }
 }
 

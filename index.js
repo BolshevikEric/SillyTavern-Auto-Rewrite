@@ -420,7 +420,7 @@ ${quickText}`)
     setStatus('正在准备重写');
     try {
         prepareMvu(job);
-        const instruction = feedback + (job.mvu ? mvuFeedback : '');
+        const instruction = feedback + (job.mvu?.active ? mvuFeedback : '');
         if (canRewriteInplace()) {
             await prepareInplace(job, instruction);
         } else {
@@ -440,7 +440,7 @@ ${quickText}`)
         if (composerBusy()) {
             throw new Error('输入框中出现了新草稿或附件，本次重写已停止');
         }
-        if (job.mvu) {
+        if (job.mvu?.active) {
             setStatus('等待 MVU 解析窗口');
             await waitMvuWindow(mvuReadyAt, () => sameJob(job) && (job.inplace ? ownsInplace(job) : getContext().chat.at(-1) === job.feedback));
             if (composerBusy()) throw new Error('输入框中出现了新草稿或附件，本次重写已停止');
@@ -463,7 +463,7 @@ ${quickText}`)
         if (job.stopRequested && job.stoppedDraft) last = job.stoppedDraft;
         if (!sameJob(job)) throw new Error('重写已取消或聊天已变化');
         if (!last || (!job.inplace && last === job.source) || last.is_user || last.is_system || !last.mes?.trim() || last.mes.trim() === '...') throw new Error('未收到可用的重写正文');
-        if (!job.stopRequested) setStatus(job.mvu ? '正在整理重写稿的 MVU 变量' : '正在保存重写稿');
+        if (!job.stopRequested) setStatus(job.mvu?.active ? '正在整理重写稿的 MVU 变量' : '正在保存重写稿');
         await finishMvu(job, last, () => sameJob(job) && (job.inplace ? ownsInplace(job)
             : job.stopRequested ? ownsTail(job) : getContext().chat.at(-1) === last));
         job.timing.finishedAt ??= Date.now();
@@ -478,7 +478,11 @@ ${quickText}`)
             }
         }
         setStatus(job.stopRequested ? '已停止，当前重写稿已保留，原稿仍在上一版' : '重写已完成，原稿已保存为上一版');
-        if (job.mvuPending) globalThis.toastr?.info('重写稿已保留；变量尚未解析完成，暂沿用本轮初始状态，请在正文完整后重新解析变量。');
+        if (job.mvuPending) {
+            globalThis.toastr?.info(job.stopRequested
+                ? '重写稿已保留；变量尚未解析完成，暂沿用本轮初始状态，请在正文完整后重新解析变量。'
+                : '重写稿已保留；未收到新的 MVU 变量快照，已暂沿用本轮初始变量，如需更新请手动重新解析变量。');
+        }
     } catch (error) {
         job.timing.finishedAt ??= Date.now();
         if (!job.settled && job.stopRequested && job.stoppedDraft && sameJob(job)) {

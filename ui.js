@@ -586,7 +586,9 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         const quickInput = root.querySelector('[data-quick-input]');
         const resizeQuickInput = () => {
             quickInput.style.height = 'auto';
-            quickInput.style.height = `${Math.min(quickInput.scrollHeight, 92)}px`;
+            const nextHeight = Math.min(quickInput.scrollHeight + 2, 96);
+            quickInput.style.height = `${nextHeight}px`;
+            quickInput.style.overflowY = quickInput.scrollHeight + 2 > 96 ? 'auto' : 'hidden';
         };
         root.querySelector('[data-rewrite]').addEventListener('click', () => onRewrite(shown?.reply));
         root.querySelector('[data-quick-toggle]').addEventListener('click', () => {
@@ -687,6 +689,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
                 : view.blocker || (view.link?.original ? '原稿' : view.stopped ? '已停止，重写稿已保留' : view.link ? '重写稿' : '');
         const meta = bar.querySelector('.auto-rewrite-meta');
         meta.hidden = !caption;
+        meta.dataset.passive = String(!view.busy && !view.waiting && !view.blocker && !view.stopped);
         const indicator = meta.querySelector('.auto-rewrite-indicator');
         indicator.hidden = (!view.busy && !view.waiting) || view.cancelled || view.stopping;
         const captionEl = meta.querySelector('[data-caption]');
@@ -713,11 +716,16 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         if (quickInput.value !== quick.text) {
             quickInput.value = quick.text;
             quickInput.style.height = 'auto';
-            quickInput.style.height = `${Math.min(quickInput.scrollHeight, 92)}px`;
+            const nextHeight = Math.min(quickInput.scrollHeight + 2, 96);
+            quickInput.style.height = `${nextHeight}px`;
+            quickInput.style.overflowY = quickInput.scrollHeight + 2 > 96 ? 'auto' : 'hidden';
         }
         quickInput.disabled = view.busy;
         const quickModeBtn = bar.querySelector('[data-quick-mode]');
         const isReplace = quick.mode === 'replace';
+        quickInput.placeholder = isReplace
+            ? '仅用模式：请填写本轮修改意见…（Ctrl+Enter 重写）'
+            : '输入即时修改意见…（Ctrl+Enter 立即重写）';
         quickModeBtn.dataset.mode = isReplace ? 'replace' : 'append';
         quickModeBtn.textContent = isReplace ? '仅用' : '追加';
         quickModeBtn.title = isReplace

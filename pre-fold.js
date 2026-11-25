@@ -5,7 +5,7 @@ const FOLD_ATTR = 'data-ar-pre-folded';
 const UNCLOSED_DOUBLE_PRE_RE = /<pre\b[^>]*>([\s\S]*?)<pre\b[^>]*>/i;
 const CLOSED_PRE_RE = /<\/pre>/i;
 const PRE_TAG_RE = /<pre\b[^>]*>([\s\S]*?)(?:<\/pre>|(?=<pre\b)|$)/gi;
-const OBSERVER_OPTIONS = { childList: true, subtree: true, characterData: true };
+const CHAT_OBSERVER_OPTIONS = { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['mesid'] };
 
 function countChars(text) {
     return String(text ?? '').replace(/\s+/g, '').length;
@@ -16,13 +16,23 @@ function formatChars(count) {
     return `${count.toLocaleString('zh-CN')} 字`;
 }
 
-function isCodeBlockPre(pre) {
+function isCodeBlockPre(pre, rawText = '') {
     if (!(pre instanceof HTMLElement)) return true;
-    // Standard Markdown fenced code blocks render as <pre><code class="...">...</code></pre>.
-    // Keep those intact so rewrite folding never hides ordinary code snippets.
     const children = [...pre.children];
-    return children.length === 1 && children[0].tagName === 'CODE'
+    const hasOnlyCodeChild = children.length === 1 && children[0].tagName === 'CODE'
         && !pre.childNodes.some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    if (!hasOnlyCodeChild) return false;
+    const code = children[0];
+    // Explicitly fenced Markdown blocks carry language-* / lang-* classes or come
+    // from messages without raw <pre> tags. If the raw message used <pre> tags,
+    // keep folding even if a post-render plugin wrapped its body in <code>.
+    if (/(?:^|\s)(?:language|lang)-/i.test(code.className || '')) return true;
+    if (typeof rawText === 'string' && /<pre\b/i.test(rawText)) {
+        if (!/```/.test(rawText)) return false;
+        const text = (pre.textContent ?? '').trim();
+        if (text && extractPreSegments(rawText).some(seg => seg.trim() === text)) return false;
+    }
+    return true;
 }
 
 function isRewrittenMessage(message, index, activeJob) {
@@ -88,14 +98,23 @@ function unwrapNestedDoublePre(pre, rawText) {
 
 function isInternalControlMutation(mutation) {
     const target = mutation.target instanceof Element ? mutation.target : mutation.target?.parentElement;
-    if (!target) return false;
-    return Boolean(target.closest('.auto-rewrite-pre-toggle, .auto-rewrite-pre-collapse-foot'));
+    if (!target) return true;
+    if (target.closest('.auto-rewrite-pre-toggle, .auto-rewrite-pre-collapse-foot, .auto-rewrite-actions')) return true;
+    if (mutation.type === 'childList') {
+        const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
+        if (nodes.length && nodes.every(n => n instanceof Element && n.classList.contains('auto-rewrite-actions'))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 export function createPreFoldManager({ getSettings, getActiveJob }) {
     const expandedState = new Map();
-    const textObservers = new Map();
     const pendingNodes = new Set();
+    let chatObserver = null;
+    let observedChat = null;
+    let syncDepth = 0;
     let disposed = false;
     let scheduled = false;
     let frameId = null;
@@ -136,12 +155,25 @@ export function createPreFoldManager({ getSettings, getActiveJob }) {
         for (const card of cards) unwrapCard(card);
     };
 
+    const pauseObserver = () => {
+        if (syncDepth === 0) chatObserver?.disconnect();
+        syncDepth++;
+    };
+
+    const resumeObserver = () => {
+        syncDepth = Math.max(0, syncDepth - 1);
+        if (syncDepth === 0 && !disposed) ensureChatObserver();
+    };
+
     const restoreAll = () => {
-        for (const obs of textObservers.values()) obs.disconnect();
-        textObservers.clear();
         pendingNodes.clear();
-        for (const card of document.querySelectorAll('#chat > .mes .auto-rewrite-pre-fold')) {
-            unwrapCard(card);
+        pauseObserver();
+        try {
+            for (const card of document.querySelectorAll('#chat > .mes .auto-rewrite-pre-fold')) {
+                unwrapCard(card);
+            }
+        } finally {
+            resumeObserver();
         }
     };
 
@@ -160,15 +192,47 @@ export function createPreFoldManager({ getSettings, getActiveJob }) {
         });
     };
 
-    const observeMesText = (mesNode, mesText) => {
-        if (!mesText || textObservers.has(mesText)) return;
-        const observer = new MutationObserver(mutations => {
-            if (disposed) return;
-            if (mutations.every(isInternalControlMutation)) return;
-            queueNodeSync(mesNode);
-        });
-        observer.observe(mesText, OBSERVER_OPTIONS);
-        textObservers.set(mesText, observer);
+    const ensureChatObserver = () => {
+        if (disposed) return;
+        const chat = document.getElementById('chat');
+        if (!chat) {
+            chatObserver?.disconnect();
+            observedChat = null;
+            return;
+        }
+        if (!chatObserver) {
+            chatObserver = new MutationObserver(mutations => {
+                if (disposed) return;
+                let syncAll = false;
+                for (const mutation of mutations) {
+                    if (isInternalControlMutation(mutation)) continue;
+                    if (mutation.target === observedChat) {
+                        for (const node of mutation.addedNodes) {
+                            if (node instanceof HTMLElement && node.matches('.mes')) queueNodeSync(node);
+                            else if (node instanceof HTMLElement) syncAll = true;
+                        }
+                        continue;
+                    }
+                    if (mutation.type === 'attributes') {
+                        const targetEl = mutation.target instanceof Element ? mutation.target : null;
+                        const mesNode = targetEl?.matches?.('#chat > .mes') ? targetEl : targetEl?.closest?.('#chat > .mes');
+                        if (mesNode) queueNodeSync(mesNode);
+                        continue;
+                    }
+                    const targetEl = mutation.target instanceof Element ? mutation.target : mutation.target?.parentElement;
+                    const mesNode = targetEl?.closest?.('#chat > .mes');
+                    if (mesNode) queueNodeSync(mesNode);
+                }
+                if (syncAll) scheduleSync();
+            });
+        }
+        if (observedChat !== chat) {
+            chatObserver.disconnect();
+            observedChat = chat;
+        }
+        if (syncDepth === 0) {
+            chatObserver.observe(chat, CHAT_OBSERVER_OPTIONS);
+        }
     };
 
     const buildFoldCard = ({ key, streaming, chars, pre }) => {
@@ -260,11 +324,7 @@ export function createPreFoldManager({ getSettings, getActiveJob }) {
         const mesText = mesNode.querySelector('.mes_block > .mes_text') ?? mesNode.querySelector('.mes_text');
         if (!mesText) return;
 
-        const observer = textObservers.get(mesText);
-        // Disconnect while we mutate mesText so our own wrapping/header updates
-        // never re-trigger the MutationObserver in a loop.
-        observer?.disconnect();
-        let shouldObserve = false;
+        pauseObserver();
         try {
             const settings = getSettings();
             if (!settings.foldPre) {
@@ -283,7 +343,7 @@ export function createPreFoldManager({ getSettings, getActiveJob }) {
                 return;
             }
 
-            shouldObserve = true;
+            const rawText = message?.mes ?? '';
             const currentKey = keyOf(ctx);
             const swipeId = message?.swipe_id ?? 0;
             const isStreaming = Boolean(activeJob && !activeJob.cancelled && !activeJob.generationFinished
@@ -291,13 +351,13 @@ export function createPreFoldManager({ getSettings, getActiveJob }) {
 
             // First clean up any raw <pre>...<pre> nesting before folding.
             for (const rawPre of [...mesText.querySelectorAll('pre')]) {
-                if (rawPre.closest('.auto-rewrite-pre-fold') || isCodeBlockPre(rawPre)) continue;
-                unwrapNestedDoublePre(rawPre, message?.mes);
+                if (rawPre.closest('.auto-rewrite-pre-fold') || isCodeBlockPre(rawPre, rawText)) continue;
+                unwrapNestedDoublePre(rawPre, rawText);
             }
 
             const blocks = [...mesText.querySelectorAll('pre')].filter(pre => {
                 if (pre.closest('.auto-rewrite-pre-fold')) return true;
-                return !isCodeBlockPre(pre);
+                return !isCodeBlockPre(pre, rawText);
             });
 
             blocks.forEach((pre, blockIndex) => {
@@ -305,7 +365,7 @@ export function createPreFoldManager({ getSettings, getActiveJob }) {
                 const chars = countChars(pre.textContent);
                 const isTailOpen = isStreaming && blockIndex === blocks.length - 1
                     && !pre.nextElementSibling
-                    && !CLOSED_PRE_RE.test(message?.mes ?? '');
+                    && !CLOSED_PRE_RE.test(rawText);
                 const existingCard = pre.closest('.auto-rewrite-pre-fold');
                 if (existingCard) {
                     existingCard._updateHeader?.(isTailOpen, chars);
@@ -322,36 +382,32 @@ export function createPreFoldManager({ getSettings, getActiveJob }) {
                 placeholder.replaceWith(card);
             });
         } finally {
-            if (!disposed && shouldObserve && mesText.isConnected) {
-                if (!textObservers.has(mesText)) observeMesText(mesNode, mesText);
-                else textObservers.get(mesText).observe(mesText, OBSERVER_OPTIONS);
-            } else if (!shouldObserve && observer) {
-                textObservers.delete(mesText);
-            }
+            resumeObserver();
         }
     };
 
     const syncChat = () => {
         if (disposed) return;
+        ensureChatObserver();
         const settings = getSettings();
         if (!settings.foldPre) {
             restoreAll();
             return;
         }
-        for (const mesNode of document.querySelectorAll('#chat > .mes')) {
-            syncMessageNode(mesNode);
-        }
-        // Prune observers for detached DOM nodes.
-        for (const [node, obs] of textObservers) {
-            if (!node.isConnected) {
-                obs.disconnect();
-                textObservers.delete(node);
+        pauseObserver();
+        try {
+            for (const mesNode of document.querySelectorAll('#chat > .mes')) {
+                syncMessageNode(mesNode);
             }
+        } finally {
+            resumeObserver();
         }
     };
 
     const scheduleSync = () => {
-        if (disposed || scheduled) return;
+        if (disposed) return;
+        ensureChatObserver();
+        if (scheduled) return;
         scheduled = true;
         requestAnimationFrame(() => {
             scheduled = false;
@@ -376,7 +432,13 @@ export function createPreFoldManager({ getSettings, getActiveJob }) {
                 cancelAnimationFrame(frameId);
                 frameId = null;
             }
-            restoreAll();
+            chatObserver?.disconnect();
+            chatObserver = null;
+            observedChat = null;
+            pendingNodes.clear();
+            for (const card of document.querySelectorAll('#chat > .mes .auto-rewrite-pre-fold')) {
+                unwrapCard(card);
+            }
             expandedState.clear();
         },
     };

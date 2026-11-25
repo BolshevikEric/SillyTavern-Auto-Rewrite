@@ -5,7 +5,7 @@ import { hasPendingFileAttachment } from '../../../chats.js';
 import { getRegexedString, regex_placement } from '../../regex/engine.js';
 import { createRewriteUI } from './ui.js';
 import { createModelRouting } from './model-routing.js';
-import { ensureFeedbackLibrary, composedFeedback, rebindCharacter } from './feedback-library.js';
+import { normalizeEntry, ensureFeedbackLibrary, composedFeedback, rebindCharacter } from './feedback-library.js';
 import { createBackgroundScheduler, disposeBackgroundDelays } from './background-scheduler.js';
 import { mvuBusy, mvuFeedback, prepareMvu, resetMvuFeedback, finishMvu, syncMvuChat, waitMvuWindow } from './mvu-compat.js';
 import { canRewriteInplace, prepareInplace, generateInplace, commitInplace, restoreInplace,
@@ -14,8 +14,13 @@ import { REVISION, TEMP, remember, collapse, restore, recover, markStaging, live
 
 const KEY = 'rewrite_writer';
 const RUNTIME = Symbol.for('st.auto-rewrite.standalone');
-const DEFAULT_FEEDBACK_NAME = '超长加强版修改意见';
+const DEFAULT_FEEDBACK_NAME = '默认修改意见';
 const DEFAULT_FEEDBACK = `上一轮正文我不太满意，请重新认真写一遍。
+我不是让你简单润色、扩写或者替换措辞，而是希望你真正发现上一稿中不自然、不合理、无趣、做作、刻板或者缺乏人物魅力的地方。
+先谈谈你的分析，1500字左右，使用<pre>...<pre> 标签包裹
+然后直接输出完整的新正文`;
+const EXTENDED_FEEDBACK_NAME = '超长加强版修改意见';
+const EXTENDED_FEEDBACK = `上一轮正文我不太满意，请重新认真写一遍。
 我不是让你简单润色、扩写或者替换措辞，而是希望你真正发现上一稿中不自然、不合理、无趣、做作、刻板或者缺乏人物魅力的地方，并有针对性地改好。原本写得好的情节、台词和细节可以直接保留。
 以下是你经常出现的写作问题。请理解具体示例背后的问题，并举一反三，而不是照搬示例。这些是帮助你发现问题的修改意见，不是每篇正文都必须逐项完成的写作任务。
 **一、不要为了满足写作要求而强行创造内容**
@@ -135,6 +140,7 @@ const DEFAULT_FEEDBACK = `上一轮正文我不太满意，请重新认真写一
 先谈谈你的理解，800字左右，不要直接在里面写重写的计划，使用<pre>...<pre> 标签包裹
 然后直接输出完整的新正文`;
 const PREVIOUS_DEFAULT_FEEDBACKS = [
+    EXTENDED_FEEDBACK,
     `上一轮正文我不太满意，请认真重写一遍。
 不要只是简单润色、扩写或换词，而是真正找出上一稿中不自然、生硬、注水、刻板、媚{{user}}、无趣，以及存在逻辑或常识错误的地方，有针对性地改好。原本写得自然、有趣、合理的情节、台词和细节直接保留，不必为了重写而故意推翻。
 ---
@@ -266,12 +272,21 @@ function settings() {
     if (typeof all[KEY].profileId !== 'string') all[KEY].profileId = '';
     if (typeof all[KEY].model !== 'string') all[KEY].model = '';
     if (ensureFeedbackLibrary(all[KEY], all[KEY].feedback === DEFAULT_FEEDBACK ? DEFAULT_FEEDBACK_NAME : undefined)) changed = true;
-    for (const entry of all[KEY].feedbackEntries ?? []) {
-        if (entry && typeof entry.content === 'string' && PREVIOUS_DEFAULT_FEEDBACKS.includes(entry.content)) {
-            if (entry.name === '常驻修改意见') entry.name = DEFAULT_FEEDBACK_NAME;
-            entry.content = DEFAULT_FEEDBACK;
-            changed = true;
+    if (all[KEY].bundledFeedbackVersion !== 2) {
+        const entries = all[KEY].feedbackEntries;
+        for (const entry of entries) {
+            if (['常驻修改意见', EXTENDED_FEEDBACK_NAME].includes(entry?.name) && PREVIOUS_DEFAULT_FEEDBACKS.includes(entry.content)) {
+                entry.name = DEFAULT_FEEDBACK_NAME;
+                entry.content = DEFAULT_FEEDBACK;
+            }
         }
+        for (const [name, content] of [[DEFAULT_FEEDBACK_NAME, DEFAULT_FEEDBACK], [EXTENDED_FEEDBACK_NAME, EXTENDED_FEEDBACK]]) {
+            if (!entries.some(entry => entry?.content === content)) {
+                entries.push(normalizeEntry({ name, content, enabled: false, always: true, order: 2 }));
+            }
+        }
+        all[KEY].bundledFeedbackVersion = 2;
+        changed = true;
     }
     if (changed) getContext().saveSettingsDebounced();
     return all[KEY];

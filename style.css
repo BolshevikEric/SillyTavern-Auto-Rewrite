@@ -34,33 +34,46 @@
 .auto-rewrite-preview-waiting { min-height: 100px; padding: 22px 0 12px; }
 .auto-rewrite-preview-label { display: inline-block; padding: 4px 9px; border: 1px solid rgba(182,164,248,.25); border-radius: 7px; color: #b6a4f8; background: rgba(182,164,248,.07); font-size: .75em; }
 .auto-rewrite-preview-waiting p { margin: 15px 0 0; opacity: .55; font-size: .88em; line-height: 1.6; }
-#chat > .mes .auto-rewrite-actions {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-    width: 100%;
+#chat > .mes:has(> .auto-rewrite-actions) {
+    padding-bottom: 54px !important;
+}
+#chat > .mes > .auto-rewrite-actions {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 10px;
+    height: 36px;
     box-sizing: border-box;
-    margin: 10px 0;
-    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 92px 0 52px;
+    margin: 0;
     border: 0;
     border-radius: 0;
     background: transparent;
     box-shadow: none;
     color: var(--SmartThemeBodyColor);
     line-height: 1.3;
-    z-index: 2;
+    pointer-events: none;
+    overflow: visible;
+    z-index: 5;
+}
+#chat > .mes > .auto-rewrite-actions[data-quick-open="true"] {
+    z-index: 25;
 }
 .auto-rewrite-row {
-    display: flex;
-    flex-wrap: wrap;
-    width: 100%;
-    min-height: 36px;
-    box-sizing: border-box;
+    pointer-events: auto;
+    display: inline-flex;
+    flex: none;
+    flex-wrap: nowrap;
+    width: max-content;
     align-items: center;
     justify-content: center;
-    gap: 5px 6px;
+    gap: 6px;
+    white-space: nowrap;
+    transform: scale(var(--rewrite-row-scale, 1));
+    transform-origin: center;
 }
 .auto-rewrite-actions [hidden] { display: none !important; }
 #form_sheld > #generation_network_status:has(> .auto-rewrite-inline-network) { display: none !important; }
@@ -324,26 +337,14 @@ button.auto-rewrite-menu-item[aria-selected="true"] .auto-rewrite-menu-check { o
 .auto-rewrite-status { margin: 0; opacity: .8; font-size: .76em; line-height: 1.4; }
 .auto-rewrite-actions button:focus-visible, .auto-rewrite-controls input:not(.auto-rewrite-combo input):not(.auto-rewrite-menu-search input):focus-visible, .auto-rewrite-dialog button:focus-visible { outline: 2px solid #b6a4f8; outline-offset: 3px; }
 @media (max-width: 640px) {
-    #chat > .mes .auto-rewrite-actions {
-        margin: 8px 0 10px;
+    #chat > .mes > .auto-rewrite-actions {
+        padding: 0 66px 0 46px;
     }
     .auto-rewrite-row {
-        flex-direction: row;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
-        padding-inline: 40px 68px;
-        gap: 5px 6px;
-        white-space: normal;
-        transform: none !important;
-    }
-    .auto-rewrite-main,
-    .auto-rewrite-buttons {
-        display: contents;
+        gap: 5px;
     }
     .auto-rewrite-meta [data-caption] {
-        max-width: none;
+        max-width: min(14em, 34vw);
     }
     .auto-rewrite-dialog:not(.auto-rewrite-library-dialog) {
         width: calc(100vw - 16px);
@@ -605,24 +606,26 @@ details[open] > .auto-rewrite-disclosure::after { transform: rotate(225deg); }
     to { opacity: 1; transform: translate(-50%, 0); }
 }
 .auto-rewrite-quick-box {
-    order: -1;
-    position: static;
+    pointer-events: auto;
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%);
     display: flex;
     align-items: flex-end;
     gap: 6px;
-    width: 100%;
-    max-width: 560px;
-    min-width: 0;
-    margin: 0 auto;
+    width: min(520px, calc(100% - 24px));
+    min-width: 240px;
     padding: 8px 10px;
     box-sizing: border-box;
     border: 1px solid color-mix(in srgb, var(--SmartThemeQuoteColor, #b6a4f8) 38%, var(--SmartThemeBorderColor, rgba(255,255,255,.18)));
     border-radius: 12px;
     background: color-mix(in srgb, var(--SmartThemeBlurTintColor, rgba(20,21,32,.95)) 94%, var(--SmartThemeBodyColor) 6%);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, .18), inset 0 1px 0 rgba(255, 255, 255, .08);
-    animation: ar-reveal 160ms var(--ar-out) both;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .08);
+    z-index: 30;
+    animation: autoRewriteQuickPopUp 140ms ease-out;
 }
 .auto-rewrite-quick-input {
     flex: 1 1 auto;
@@ -666,13 +669,14 @@ details[open] > .auto-rewrite-disclosure::after { transform: rotate(225deg); }
 }
 @media (max-width: 640px) {
     .auto-rewrite-quick-box {
-        width: 100%;
-        max-width: none;
+        left: 8px;
+        right: 8px;
+        transform: none;
+        width: auto;
         min-width: 0;
-        margin: 0;
         padding: 7px 8px;
         gap: 6px;
-        animation: ar-reveal 160ms var(--ar-out) both;
+        animation: auto-rewrite-fade-in 140ms ease-out;
     }
     .auto-rewrite-quick-input {
         min-height: 36px;
@@ -760,11 +764,14 @@ details[open] > .auto-rewrite-disclosure::after { transform: rotate(225deg); }
     45% { transform: translateY(-2px); }
 }
 
-/* ---------- Inline footer buttons (no floating capsule, sits cleanly between swipe arrows) ---------- */
-#chat > .mes .auto-rewrite-actions {
+/* ---------- Inline footer buttons (no floating capsule, level with swipe arrows) ---------- */
+#chat > .mes > .auto-rewrite-actions {
     animation: ar-bar-in .2s var(--ar-out) both;
 }
 .auto-rewrite-indicator { color: var(--ar-accent-icon); }
+
+/* Hide redundant passive 原稿/重写稿 word so single row stays clean & centered */
+.auto-rewrite-meta[data-passive="true"] { display: none !important; }
 
 /* Shared pill button rhythm across desktop & mobile */
 .auto-rewrite-actions button {
@@ -798,7 +805,7 @@ details[open] > .auto-rewrite-disclosure::after { transform: rotate(225deg); }
     padding: 0 6px;
     font-size: .73em;
     color: var(--SmartThemeBodyColor);
-    opacity: .6;
+    opacity: .68;
 }
 .auto-rewrite-actions[data-busy="true"] .auto-rewrite-meta {
     height: 28px;
@@ -835,18 +842,12 @@ details[open] > .auto-rewrite-disclosure::after { transform: rotate(225deg); }
     border-radius: 999px;
 }
 
-/* ---------- Desktop centered footer row between swipe arrows ---------- */
+/* ---------- Desktop single centered row between swipe arrows ---------- */
 @media (min-width: 641px) {
-    .auto-rewrite-row {
-        padding-inline: 44px 90px;
-        gap: 6px;
-    }
     .auto-rewrite-main {
-        display: flex;
-        flex-wrap: wrap;
+        display: inline-flex;
+        flex-wrap: nowrap;
         align-items: center;
-        justify-content: center;
-        min-width: 0;
         gap: 5px;
     }
     .auto-rewrite-actions [data-rewrite] { order: 1; }
@@ -862,7 +863,7 @@ details[open] > .auto-rewrite-disclosure::after { transform: rotate(225deg); }
         order: 1;
     }
     .auto-rewrite-actions[data-busy="true"] .auto-rewrite-meta [data-caption] {
-        max-width: min(24em, 34vw);
+        max-width: min(22em, 30vw);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -889,8 +890,17 @@ details[open] > .auto-rewrite-disclosure::after { transform: rotate(225deg); }
     }
 }
 
-/* ---------- Mobile compact centered inline pills between swipe arrows ---------- */
+/* ---------- Mobile single compact row right between swipe arrows ---------- */
 @media (max-width: 640px) {
+    .auto-rewrite-main,
+    .auto-rewrite-buttons {
+        display: inline-flex;
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 5px;
+        padding: 0;
+        border: 0;
+    }
     .auto-rewrite-actions button {
         height: 28px;
         min-height: 28px;
@@ -901,18 +911,33 @@ details[open] > .auto-rewrite-disclosure::after { transform: rotate(225deg); }
     .auto-rewrite-actions [data-rewrite] {
         padding: 0 10px;
     }
-    /* Hide passive 原稿/重写稿 word on mobile; show real progress/warnings */
-    .auto-rewrite-meta[data-passive="true"] { display: none !important; }
+    /* Secondary buttons become crisp icon pills on mobile so everything fits cleanly between < and 1/1 > */
+    .auto-rewrite-actions [data-quick-toggle],
+    .auto-rewrite-actions [data-jump] {
+        width: 28px;
+        min-width: 28px;
+        padding: 0;
+    }
+    .auto-rewrite-actions [data-quick-toggle] > span:not(.auto-rewrite-quick-dot),
+    .auto-rewrite-actions [data-jump] > span,
+    .auto-rewrite-actions .auto-rewrite-quick-toggle > span {
+        display: none;
+    }
+    .auto-rewrite-actions [data-quick-toggle] .auto-rewrite-quick-dot {
+        position: absolute;
+        top: 3px;
+        right: 3px;
+        width: 5px;
+        height: 5px;
+    }
     .auto-rewrite-meta {
-        max-width: 100%;
-        font-size: 12px;
+        font-size: 11.5px;
     }
     .auto-rewrite-actions .auto-rewrite-quick-toggle {
         height: 28px;
         min-height: 28px;
-        padding: 0 8px 0 5px;
-        gap: 5px;
-        font-size: 12px;
+        padding: 0 5px;
+        gap: 0;
     }
     .auto-rewrite-actions .auto-rewrite-quick-toggle input {
         width: 28px;
@@ -1201,7 +1226,7 @@ button.auto-rewrite-select-btn:not(:disabled):active { transform: scale(.985); }
 
 /* ---------- Reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
-    #chat > .mes .auto-rewrite-actions,
+    #chat > .mes > .auto-rewrite-actions,
     .auto-rewrite-quick-box,
     .auto-rewrite-quick-dot,
     .auto-rewrite-menu,

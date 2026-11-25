@@ -239,6 +239,15 @@ function setDropdownButton(btn, items, value) {
 
 export function createRewriteUI({ getSettings, getView, onVersions, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onQuickChange, onLibraryChange, onRewrite, onJump, onMutation }) {
     let settingsLauncher, settingsEntry, bar, dialog, observer, frame, poll, clock, shown;
+    const toolbarObserver = new ResizeObserver(() => {
+        if (!bar?.parentElement) return;
+        const row = bar.firstElementChild;
+        const style = getComputedStyle(bar);
+        const available = bar.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        if (available > 0 && row.offsetWidth > 0) {
+            row.style.setProperty('--rewrite-row-scale', Math.min(1, available / row.offsetWidth));
+        }
+    });
     let inlineNetworkLabel;
     let disposed = false;
     const forms = new Set();
@@ -564,11 +573,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         root.querySelector('[data-quick-toggle]').addEventListener('click', () => {
             const nextOpen = !shown?.quick?.open;
             onQuickChange?.({ open: nextOpen });
-            if (nextOpen) requestAnimationFrame(() => {
-                resizeQuickInput();
-                quickInput.focus();
-                root.querySelector('[data-quick-box]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-            });
+            if (nextOpen) requestAnimationFrame(() => { resizeQuickInput(); quickInput.focus(); });
         });
         quickInput.addEventListener('input', () => {
             resizeQuickInput();
@@ -607,8 +612,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
             const node = root.querySelector('[data-status]');
             if (node.textContent !== view.status) node.textContent = view.status;
         }
-        const mes = view.reply && document.querySelector(`#chat > .mes[mesid="${view.reply.index}"]`);
-        const host = mes ? (mes.querySelector(':scope > .mes_block') ?? mes) : null;
+        const host = view.reply && document.querySelector(`#chat > .mes[mesid="${view.reply.index}"]`);
         if (bar?.parentElement && bar.parentElement !== host) {
             bar.remove();
         }
@@ -621,6 +625,8 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         }
         if (!bar) {
             bar = makeBar();
+            toolbarObserver.observe(bar);
+            toolbarObserver.observe(bar.firstElementChild);
         }
         if (bar.parentElement !== host) {
             host.append(bar);
@@ -759,6 +765,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         library.dispose();
         document.removeEventListener('visibilitychange', onVisibility);
         observer?.disconnect();
+        toolbarObserver.disconnect();
         if (frame) cancelAnimationFrame(frame);
         clearTimeout(poll); clearInterval(clock);
         menu.destroy();

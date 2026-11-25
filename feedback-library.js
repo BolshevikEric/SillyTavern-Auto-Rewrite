@@ -24,11 +24,11 @@ export function normalizeEntry(input = {}) {
     };
 }
 
-export function ensureFeedbackLibrary(settings) {
+export function ensureFeedbackLibrary(settings, initialName = '常驻修改意见') {
     if (settings.feedbackLibraryVersion === 1 && Array.isArray(settings.feedbackEntries)) return false;
     const existing = Array.isArray(settings.feedbackEntries) ? settings.feedbackEntries : null;
     settings.feedbackEntries = existing ? existing.filter(item => item && typeof item === 'object').map(normalizeEntry)
-        : [normalizeEntry({ name: '常驻修改意见', content: settings.feedback ?? '', order: 2, always: true })];
+        : [normalizeEntry({ name: initialName, content: settings.feedback ?? '', order: 2, always: true })];
     const ids = new Set();
     for (const entry of settings.feedbackEntries) {
         if (ids.has(entry.id)) entry.id = entryId();

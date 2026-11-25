@@ -237,7 +237,7 @@ function setDropdownButton(btn, items, value) {
     btn.dataset.value = value;
 }
 
-export function createRewriteUI({ getSettings, getView, onVersions, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onQuickChange, onLibraryChange, onRewrite, onJump, onMutation }) {
+export function createRewriteUI({ getSettings, getView, onVersions, getRouting, onRoute, onRefreshModels, onMainProfile, onMainModel, onRefreshMainModels, onAuto, onFoldPre, onQuickChange, onLibraryChange, onRewrite, onJump, onMutation }) {
     let settingsLauncher, settingsEntry, bar, dialog, observer, chatResizeObserver, frame, poll, clock, shown, wasBusy = false;
     const ensureBarVisible = (forceBottom = false) => {
         if (!bar?.isConnected || bar.hidden) return;
@@ -311,6 +311,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         const seq = ++formSequence;
         root.dataset.formId = String(seq);
         root.innerHTML = `<label class="auto-rewrite-setting-toggle"><span><b>首轮完成后自动重写</b></span><input type="checkbox" data-auto></label>
+            <label class="auto-rewrite-setting-toggle"><span><b>隐藏重写思考（&lt;pre&gt; 标签）</b><small>自动折叠重写回复中的 &lt;pre&gt; 分析内容，点击展开、再次点击收回</small></span><input type="checkbox" data-fold-pre></label>
             <div data-feedback-library-placeholder></div>
             <details open class="auto-rewrite-model-card" aria-label="模型与 API 设置">
                 <summary class="auto-rewrite-disclosure"><b>模型设置</b><span data-route-summary></span></summary>
@@ -333,6 +334,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
                 </details>
             <p class="auto-rewrite-status" data-status role="status"></p>`;
         root.querySelector('[data-auto]').addEventListener('change', event => { onAuto(event.target.checked); sync(); refresh(); });
+        root.querySelector('[data-fold-pre]').addEventListener('change', event => { onFoldPre?.(event.target.checked); sync(); });
         root.querySelector('[data-feedback-library-placeholder]').replaceWith(library.summary());
 
         const openBtnMenu = (btn, onPick, box = btn) => {
@@ -425,6 +427,7 @@ export function createRewriteUI({ getSettings, getView, onVersions, getRouting, 
         for (const root of forms) {
             const seq = root.dataset.formId;
             root.querySelector('[data-auto]').checked = settings.auto;
+            root.querySelector('[data-fold-pre]').checked = settings.foldPre !== false;
 
             // Main API group
             const mainProfileBtn = root.querySelector('[data-main-profile]');

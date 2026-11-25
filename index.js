@@ -7,6 +7,7 @@ import { createRewriteUI } from './ui.js';
 import { createModelRouting } from './model-routing.js';
 import { normalizeEntry, ensureFeedbackLibrary, composedFeedback, rebindCharacter } from './feedback-library.js';
 import { createBackgroundScheduler, disposeBackgroundDelays } from './background-scheduler.js';
+import { createPreFoldManager } from './pre-fold.js';
 import { mvuBusy, mvuFeedback, prepareMvu, resetMvuFeedback, finishMvu, syncMvuChat, waitMvuWindow } from './mvu-compat.js';
 import { canRewriteInplace, prepareInplace, generateInplace, commitInplace, restoreInplace,
     recoverInplace, ownsInplace, updateInplacePrompts, clearInplacePrompts, getInplaceReply, rememberStoppedInplace } from './inplace-rewrite.js';
@@ -232,6 +233,7 @@ const PREVIOUS_DEFAULT_FEEDBACKS = [
 ];
 let installed = false;
 let ui;
+let preFold;
 let cycle;
 let pending;
 let running;
@@ -265,6 +267,10 @@ function settings() {
     if (!all[KEY] || typeof all[KEY] !== 'object') all[KEY] = {};
     let changed = false;
     if (typeof all[KEY].auto !== 'boolean') all[KEY].auto = false;
+    if (typeof all[KEY].foldPre !== 'boolean') {
+        all[KEY].foldPre = true;
+        changed = true;
+    }
     if (typeof all[KEY].feedback !== 'string' || PREVIOUS_DEFAULT_FEEDBACKS.includes(all[KEY].feedback)) {
         all[KEY].feedback = DEFAULT_FEEDBACK;
         changed = true;
@@ -645,6 +651,7 @@ ${quickText}`)
         if (running === job) running = null;
         ui?.sync();
         ui?.refresh();
+        preFold?.scheduleSync();
     }
 }
 
@@ -667,6 +674,7 @@ export function enable() {
     scheduler = createBackgroundScheduler(drainQueue);
     globalThis[RUNTIME] = { disable };
     const { eventTypes: events } = getContext();
+    preFold = createPreFoldManager({ getSettings: settings, getActiveJob: () => running });
     ui = createRewriteUI({ getSettings: settings, getView: view, onVersions: openVersions, onRewrite: manualRewrite, onJump: jump,
         getRouting: () => routing.describe(settings()),
         onRoute: value => { Object.assign(settings(), value); getContext().saveSettingsDebounced(); },
@@ -674,17 +682,23 @@ export function enable() {
         onMainProfile: id => { routing.setMainProfile(id); ui?.sync(); ui?.refresh(); },
         onMainModel: model => { routing.setMainModel(model); ui?.sync(); ui?.refresh(); },
         onRefreshMainModels: signal => routing.refreshModels({ profileId: '', model: '' }, signal),
-        onMutation: () => markStaging(running),
+        onMutation: () => { markStaging(running); preFold?.scheduleSync(); },
         onAuto: value => {
             settings().auto = value; getContext().saveSettingsDebounced();
             if (!value) clearPending();
             if (!running) setStatus(value ? '等待下一次生成' : '自动重写已关闭');
         },
+        onFoldPre: value => {
+            settings().foldPre = value;
+            getContext().saveSettingsDebounced();
+            preFold?.syncChat();
+        },
         onQuickChange: updateQuickDraft,
         onLibraryChange: () => { getContext().saveSettingsDebounced(); } });
     ui.install();
-    subscribe(events.APP_READY, () => { ui?.install(); void recoverInterrupted(); });
-    subscribe(events.SETTINGS_LOADED, () => { ui?.sync(); ui?.refresh(); });
+    preFold.scheduleSync();
+    subscribe(events.APP_READY, () => { ui?.install(); preFold?.scheduleSync(); void recoverInterrupted(); });
+    subscribe(events.SETTINGS_LOADED, () => { ui?.sync(); ui?.refresh(); preFold?.syncChat(); });
     for (const type of [events.CONNECTION_PROFILE_CREATED, events.CONNECTION_PROFILE_UPDATED,
         events.CONNECTION_PROFILE_DELETED, events.CONNECTION_PROFILE_LOADED,
         events.CHATCOMPLETION_MODEL_CHANGED, events.SETTINGS_UPDATED,
@@ -710,6 +724,7 @@ export function enable() {
                     running.replyReceived = false;
                     running.nativeStarted = true;
                     updateInplacePrompts(running, type);
+                    preFold?.scheduleSync();
                     return;
                 }
             }
@@ -729,7 +744,7 @@ export function enable() {
             running.replyReceived = true;
             setStatus(mvuBusy() ? '正文已收到，正在解析 MVU 变量' : '正文已收到，正在完成酒馆收尾');
         }
-        markStaging(running); ui?.refresh();
+        markStaging(running); ui?.refresh(); preFold?.scheduleSync();
         if (running || !settings().auto || !cycle?.eligible || cycle.attempted || type === 'first_message') return;
         const ctx = getContext();
         const stream = ctx.streamingProcessor;
@@ -792,9 +807,9 @@ export function enable() {
         ui?.sync();
         void recoverInterrupted();
     });
-    subscribe(events.CHAT_LOADED, () => { ui?.install(); void recoverInterrupted(); });
+    subscribe(events.CHAT_LOADED, () => { ui?.install(); preFold?.scheduleSync(); void recoverInterrupted(); });
     for (const type of [events.MESSAGE_SWIPED, events.MESSAGE_UPDATED, events.MESSAGE_EDITED, events.MESSAGE_DELETED,
-        events.CHARACTER_MESSAGE_RENDERED, events.MORE_MESSAGES_LOADED]) subscribe(type, () => ui?.refresh());
+        events.CHARACTER_MESSAGE_RENDERED, events.MORE_MESSAGES_LOADED]) subscribe(type, () => { ui?.refresh(); preFold?.scheduleSync(); });
     subscribe(events.MESSAGE_SENT, id => {
         if (running && getContext().chat[Number(id)] !== running.feedback) {
             running.cancelled = true; running.timing.finishedAt ??= Date.now(); showStaging();
@@ -829,6 +844,7 @@ export function disable() {
     const ctx = getContext();
     for (const [type, handler] of subscriptions.splice(0)) ctx.eventSource.removeListener(type, handler);
     $(document).off('.autoRewriteComposer');
+    preFold?.dispose(); preFold = null;
     ui?.dispose(); ui = null;
     showStaging();
 }

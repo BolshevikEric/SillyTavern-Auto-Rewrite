@@ -5,6 +5,7 @@ const FOLD_ATTR = 'data-ar-pre-folded';
 const UNCLOSED_DOUBLE_PRE_RE = /<pre\b[^>]*>([\s\S]*?)<pre\b[^>]*>/i;
 const CLOSED_PRE_RE = /<\/pre>/i;
 const PRE_TAG_RE = /<pre\b[^>]*>([\s\S]*?)(?:<\/pre>|(?=<pre\b)|$)/gi;
+const OBSERVER_OPTIONS = { childList: true, subtree: true, characterData: true };
 
 function countChars(text) {
     return String(text ?? '').replace(/\s+/g, '').length;
@@ -85,24 +86,37 @@ function unwrapNestedDoublePre(pre, rawText) {
     }
 }
 
+function isInternalControlMutation(mutation) {
+    const target = mutation.target instanceof Element ? mutation.target : mutation.target?.parentElement;
+    if (!target) return false;
+    return Boolean(target.closest('.auto-rewrite-pre-toggle, .auto-rewrite-pre-collapse-foot'));
+}
+
 export function createPreFoldManager({ getSettings, getActiveJob }) {
     const expandedState = new Map();
     const textObservers = new Map();
+    const pendingNodes = new Set();
     let disposed = false;
     let scheduled = false;
+    let frameId = null;
 
     const stateKey = (chatKey, index, swipeId, blockIndex) => `${chatKey}|${index}|${swipeId}|${blockIndex}`;
 
     const setCardExpanded = (card, expanded) => {
-        card.dataset.expanded = String(expanded);
+        const nextFlag = String(expanded);
+        if (card.dataset.expanded !== nextFlag) card.dataset.expanded = nextFlag;
         const toggle = card.querySelector('.auto-rewrite-pre-toggle');
         const hint = card.querySelector('.auto-rewrite-pre-hint');
         const panel = card.querySelector('.auto-rewrite-pre-panel');
-        if (toggle) toggle.setAttribute('aria-expanded', String(expanded));
-        if (hint) hint.textContent = expanded ? '点击收回' : '点击展开';
+        if (toggle && toggle.getAttribute('aria-expanded') !== nextFlag) {
+            toggle.setAttribute('aria-expanded', nextFlag);
+        }
+        const nextHint = expanded ? '点击收回' : '点击展开';
+        if (hint && hint.textContent !== nextHint) hint.textContent = nextHint;
         if (panel) {
-            panel.setAttribute('aria-hidden', String(!expanded));
-            panel.inert = !expanded;
+            const nextHidden = String(!expanded);
+            if (panel.getAttribute('aria-hidden') !== nextHidden) panel.setAttribute('aria-hidden', nextHidden);
+            if (Boolean(panel.inert) !== !expanded) panel.inert = !expanded;
         }
     };
 
@@ -123,25 +137,37 @@ export function createPreFoldManager({ getSettings, getActiveJob }) {
     };
 
     const restoreAll = () => {
+        for (const obs of textObservers.values()) obs.disconnect();
+        textObservers.clear();
+        pendingNodes.clear();
         for (const card of document.querySelectorAll('#chat > .mes .auto-rewrite-pre-fold')) {
             unwrapCard(card);
         }
-        for (const obs of textObservers.values()) obs.disconnect();
-        textObservers.clear();
+    };
+
+    const queueNodeSync = mesNode => {
+        if (disposed || !mesNode?.isConnected) return;
+        pendingNodes.add(mesNode);
+        if (frameId != null) return;
+        frameId = requestAnimationFrame(() => {
+            frameId = null;
+            if (disposed) return;
+            const batch = [...pendingNodes];
+            pendingNodes.clear();
+            for (const node of batch) {
+                if (node.isConnected) syncMessageNode(node);
+            }
+        });
     };
 
     const observeMesText = (mesNode, mesText) => {
         if (!mesText || textObservers.has(mesText)) return;
-        let syncing = false;
-        const observer = new MutationObserver(() => {
-            if (disposed || syncing) return;
-            syncing = true;
-            queueMicrotask(() => {
-                syncing = false;
-                if (!disposed && mesNode.isConnected) syncMessageNode(mesNode);
-            });
+        const observer = new MutationObserver(mutations => {
+            if (disposed) return;
+            if (mutations.every(isInternalControlMutation)) return;
+            queueNodeSync(mesNode);
         });
-        observer.observe(mesText, { childList: true, subtree: true, characterData: true });
+        observer.observe(mesText, OBSERVER_OPTIONS);
         textObservers.set(mesText, observer);
     };
 
@@ -193,14 +219,17 @@ export function createPreFoldManager({ getSettings, getActiveJob }) {
         card.append(toggle, panel);
 
         const updateHeader = (nextStreaming, nextChars) => {
-            card.dataset.streaming = String(nextStreaming);
-            icon.className = nextStreaming
+            const streamFlag = String(nextStreaming);
+            if (card.dataset.streaming !== streamFlag) card.dataset.streaming = streamFlag;
+            const nextIconClass = nextStreaming
                 ? 'fa-solid fa-circle-notch fa-spin'
                 : 'fa-solid fa-wand-magic-sparkles';
-            title.textContent = nextStreaming ? '正在生成重写分析' : '重写思考与分析';
+            if (icon.className !== nextIconClass) icon.className = nextIconClass;
+            const nextTitle = nextStreaming ? '正在生成重写分析' : '重写思考与分析';
+            if (title.textContent !== nextTitle) title.textContent = nextTitle;
             const formatted = formatChars(nextChars);
-            count.textContent = formatted;
-            count.hidden = !formatted;
+            if (count.textContent !== formatted) count.textContent = formatted;
+            if (count.hidden !== !formatted) count.hidden = !formatted;
         };
 
         const flip = () => {
@@ -231,62 +260,75 @@ export function createPreFoldManager({ getSettings, getActiveJob }) {
         const mesText = mesNode.querySelector('.mes_block > .mes_text') ?? mesNode.querySelector('.mes_text');
         if (!mesText) return;
 
-        const settings = getSettings();
-        if (!settings.foldPre) {
-            restoreMessage(mesNode);
-            return;
-        }
-
-        const index = Number(mesNode.getAttribute('mesid'));
-        if (!Number.isInteger(index) || index < 0) return;
-
-        const ctx = getContext();
-        const message = ctx.chat?.[index];
-        const activeJob = getActiveJob?.();
-        if (!isRewrittenMessage(message, index, activeJob)) {
-            restoreMessage(mesNode);
-            return;
-        }
-
-        observeMesText(mesNode, mesText);
-
-        const currentKey = keyOf(ctx);
-        const swipeId = message?.swipe_id ?? 0;
-        const isStreaming = Boolean(activeJob && !activeJob.cancelled && !activeJob.generationFinished
-            && (activeJob.inplace ? index === activeJob.index : index > activeJob.index + 1));
-
-        // First clean up any raw <pre>...<pre> nesting before folding.
-        for (const rawPre of [...mesText.querySelectorAll('pre')]) {
-            if (rawPre.closest('.auto-rewrite-pre-fold') || isCodeBlockPre(rawPre)) continue;
-            unwrapNestedDoublePre(rawPre, message?.mes);
-        }
-
-        const blocks = [...mesText.querySelectorAll('pre')].filter(pre => {
-            if (pre.closest('.auto-rewrite-pre-fold')) return true;
-            return !isCodeBlockPre(pre);
-        });
-
-        blocks.forEach((pre, blockIndex) => {
-            const key = stateKey(currentKey, index, swipeId, blockIndex);
-            const chars = countChars(pre.textContent);
-            const isTailOpen = isStreaming && blockIndex === blocks.length - 1
-                && !pre.nextElementSibling
-                && !CLOSED_PRE_RE.test(message?.mes ?? '');
-            const existingCard = pre.closest('.auto-rewrite-pre-fold');
-            if (existingCard) {
-                existingCard._updateHeader?.(isTailOpen, chars);
-                const wantExpanded = expandedState.get(key) === true;
-                if ((existingCard.dataset.expanded === 'true') !== wantExpanded) {
-                    setCardExpanded(existingCard, wantExpanded);
-                }
+        const observer = textObservers.get(mesText);
+        // Disconnect while we mutate mesText so our own wrapping/header updates
+        // never re-trigger the MutationObserver in a loop.
+        observer?.disconnect();
+        let shouldObserve = false;
+        try {
+            const settings = getSettings();
+            if (!settings.foldPre) {
+                restoreMessage(mesNode);
                 return;
             }
-            if (!pre.parentElement) return;
-            const placeholder = document.createComment('auto-rewrite-pre-slot');
-            pre.replaceWith(placeholder);
-            const card = buildFoldCard({ key, streaming: isTailOpen, chars, pre });
-            placeholder.replaceWith(card);
-        });
+
+            const index = Number(mesNode.getAttribute('mesid'));
+            if (!Number.isInteger(index) || index < 0) return;
+
+            const ctx = getContext();
+            const message = ctx.chat?.[index];
+            const activeJob = getActiveJob?.();
+            if (!isRewrittenMessage(message, index, activeJob)) {
+                restoreMessage(mesNode);
+                return;
+            }
+
+            shouldObserve = true;
+            const currentKey = keyOf(ctx);
+            const swipeId = message?.swipe_id ?? 0;
+            const isStreaming = Boolean(activeJob && !activeJob.cancelled && !activeJob.generationFinished
+                && (activeJob.inplace ? index === activeJob.index : index > activeJob.index + 1));
+
+            // First clean up any raw <pre>...<pre> nesting before folding.
+            for (const rawPre of [...mesText.querySelectorAll('pre')]) {
+                if (rawPre.closest('.auto-rewrite-pre-fold') || isCodeBlockPre(rawPre)) continue;
+                unwrapNestedDoublePre(rawPre, message?.mes);
+            }
+
+            const blocks = [...mesText.querySelectorAll('pre')].filter(pre => {
+                if (pre.closest('.auto-rewrite-pre-fold')) return true;
+                return !isCodeBlockPre(pre);
+            });
+
+            blocks.forEach((pre, blockIndex) => {
+                const key = stateKey(currentKey, index, swipeId, blockIndex);
+                const chars = countChars(pre.textContent);
+                const isTailOpen = isStreaming && blockIndex === blocks.length - 1
+                    && !pre.nextElementSibling
+                    && !CLOSED_PRE_RE.test(message?.mes ?? '');
+                const existingCard = pre.closest('.auto-rewrite-pre-fold');
+                if (existingCard) {
+                    existingCard._updateHeader?.(isTailOpen, chars);
+                    const wantExpanded = expandedState.get(key) === true;
+                    if ((existingCard.dataset.expanded === 'true') !== wantExpanded) {
+                        setCardExpanded(existingCard, wantExpanded);
+                    }
+                    return;
+                }
+                if (!pre.parentElement) return;
+                const placeholder = document.createComment('auto-rewrite-pre-slot');
+                pre.replaceWith(placeholder);
+                const card = buildFoldCard({ key, streaming: isTailOpen, chars, pre });
+                placeholder.replaceWith(card);
+            });
+        } finally {
+            if (!disposed && shouldObserve && mesText.isConnected) {
+                if (!textObservers.has(mesText)) observeMesText(mesNode, mesText);
+                else textObservers.get(mesText).observe(mesText, OBSERVER_OPTIONS);
+            } else if (!shouldObserve && observer) {
+                textObservers.delete(mesText);
+            }
+        }
     };
 
     const syncChat = () => {
@@ -330,6 +372,10 @@ export function createPreFoldManager({ getSettings, getActiveJob }) {
         restoreAll,
         dispose() {
             disposed = true;
+            if (frameId != null) {
+                cancelAnimationFrame(frameId);
+                frameId = null;
+            }
             restoreAll();
             expandedState.clear();
         },
